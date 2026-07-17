@@ -7378,73 +7378,6 @@ function arcadeCampaignRecommendations() {
     },
   ].sort((a, b) => b.score - a.score);
 }
-function arcadeSliderMarketingBase(v) {
-  if (v.prestige >= v.awareness && v.prestige >= v.fandom)
-    return "Prestige Campaign";
-  if (v.fandom > v.awareness) return "Fan Convention";
-  return "Mass Awareness";
-}
-const LEGACY_MARKETING_PAGE_V22 = function arcadeMarketingPage() {
-  ensureArcadeState();
-  S.arcade.marketingSliders = {
-    awareness: 60,
-    fandom: 55,
-    prestige: 45,
-    ...(S.arcade.marketingSliders || {}),
-  };
-  const r = arcadeCampaignRecommendations(),
-    v = S.arcade.marketingSliders;
-  shell(
-    `<div class="arcadePageHead"><div><div class="mini">Step 4</div><h1>Build the campaign.</h1><p class="sub">Start with a recommendation or tune the sliders.</p></div></div><section class="arcadeMarketingMemo"><div class="arcadeMemoStamp">MARKETING</div><div><b>Recommendation report</b><p>${arcadeEsc(r[0].reason)}</p></div></section><div class="arcadePresetRow">${r.map((x, i) => `<button class="arcadeMarketingCard ${S.arcade.marketingLabel === x.name ? "selected" : ""}" data-market-preset="${x.name}"><span class="arcadePitchNumber">0${i + 1}</span><div><div class="mini">Recommended</div><h2>${arcadeEsc(x.name)}</h2><p>${arcadeEsc(x.reason)}</p></div></button>`).join("")}</div><section class="arcadeMarketingSliders"><div class="arcadeDrawerHead"><div><span class="mini">Custom tactic</span><b>${arcadeEsc(S.arcade.marketingLabel || "Manual mix")}</b></div></div>${[
-      ["awareness", "Mass awareness"],
-      ["fandom", "Fandom targeting"],
-      ["prestige", "Prestige push"],
-    ]
-      .map(
-        ([k, l]) =>
-          `<label class="arcadeSliderRow"><span>${l}</span><input type="range" min="0" max="100" value="${v[k]}" data-marketing-slider="${k}"><b>${v[k]}</b></label>`,
-      )
-      .join(
-        "",
-      )}</section><div class="arcadeFooterNav"><button class="btn" id="backProd">← Crew & style</button><button class="btn warn" id="launch">Launch release</button></div>`,
-  );
-  $$("[data-market-preset]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        const p = ARCADE_MARKETING_PRESETS[b.dataset.marketPreset];
-        S.arcade.marketingSliders = {
-          awareness: p.awareness,
-          fandom: p.fandom,
-          prestige: p.prestige,
-        };
-        S.arcade.marketingLabel = b.dataset.marketPreset;
-        S.marketing = p.base;
-        render();
-      }),
-  );
-  $$("[data-marketing-slider]").forEach(
-    (i) =>
-      (i.oninput = () => {
-        S.arcade.marketingSliders[i.dataset.marketingSlider] = +i.value;
-        S.arcade.marketingLabel = "Custom Slider Mix";
-        S.marketing = arcadeSliderMarketingBase(S.arcade.marketingSliders);
-        render();
-      }),
-  );
-  $("#backProd").onclick = () => {
-    S.screen = 2;
-    render();
-  };
-  $("#launch").onclick = async () => {
-    S.simulation = simulate();
-    await loadCompetition();
-    S.releaseRace = buildReleaseRace(S.simulation);
-    S.releaseRaceCompleted = false;
-    S.screen = 4;
-    render();
-  };
-};
-
 function arcadeCreativeEffects() {
   const music =
     ARCADE_MUSIC_CHOICES[S.arcade.musicChoice] ||
@@ -7701,87 +7634,6 @@ simulate = function arcadeSimulate() {
   S.arcade.finalScores = simulation.arcadeScores;
   S.arcade.runBadges = simulation.runBadges;
   return simulation;
-};
-
-const LEGACY_RESULTS_PAGE_V22 = function arcadeResultsPage() {
-  recordCompletedCareerRun();
-  const simulation = S.simulation;
-  if (!simulation) return shell("<h1>No result yet.</h1>");
-  const { rows, rank } = yearRank(simulation);
-  const scores = simulation.arcadeScores ||
-    S.arcade.finalScores || {
-      categories: {},
-      weights: {},
-      total: 0,
-      grade: "—",
-    };
-  const why = buildWhyAnalysis(simulation, rank);
-  const awards = simulation.awards;
-  const totalWins =
-    safe(awards.filmWins) +
-    safe(awards.actingWins) +
-    safe(awards.technicalWins);
-  let body = "";
-
-  if (S.endTab === "results") {
-    body = `<section class="arcadeGradeHero"><div class="arcadeGrade ${String(scores.grade).replace("+", "plus")}">${arcadeEsc(scores.grade)}</div><div><div class="mini">Final studio grade</div><h1>${Math.round(scores.total)}/100</h1><p>Box office matters, but ${arcadeEsc(S.project.genre)} also grades craft, visuals, music and audience response.</p></div><div class="arcadeOutcomeStamp"><span>${arcadeEsc(simulation.outcome)}</span><b>${moneyM(simulation.profit)} profit</b></div></section>
-      <div class="arcadeScoreGrid">${Object.entries(scores.categories)
-        .map(
-          ([key, value]) =>
-            `<div class="arcadeScoreCard"><div><span>${arcadeEsc(key)}</span><b>${Math.round(value)}</b></div><div class="meter"><span style="width:${clamp(value)}%"></span></div><small>${Math.round(safe(scores.weights[key]))}% of final grade</small></div>`,
-        )
-        .join("")}</div>
-      <section class="arcadeResultStats"><div><span>Worldwide</span><b>${moneyM(simulation.world)}</b></div><div><span>Year rank</span><b>#${rank}</b></div><div><span>Critics</span><b>${Math.round(simulation.critic)}</b></div><div><span>Audience</span><b>${Math.round(simulation.audience)}</b></div><div><span>Awards won</span><b>${totalWins}</b></div></section>
-      <h2>Run badges</h2><div class="arcadeRunBadges">${(simulation.runBadges || []).length ? simulation.runBadges.map((badge) => `<div><span>${badge.icon}</span><b>${arcadeEsc(badge.name)}</b><small>${arcadeEsc(badge.text)}</small></div>`).join("") : "<div><span>🎟️</span><b>First Screening</b><small>Complete more runs to chase special badges.</small></div>"}</div>
-      ${S.reference ? `<section class="arcadeVsOriginal"><div><span>Original worldwide</span><b>${S.reference.revenueM ? moneyM(S.reference.revenueM) : "Unknown"}</b></div><div><span>Your worldwide</span><b>${moneyM(simulation.world)}</b></div><strong class="${simulation.world >= safe(S.reference.revenueM) ? "positive" : "negative"}">${simulation.world >= safe(S.reference.revenueM) ? "You beat the original gross." : "The original kept the box-office crown."}</strong></section>` : ""}`;
-  }
-
-  if (S.endTab === "why") {
-    const strongest = Object.entries(scores.categories).sort(
-      (a, b) => b[1] - a[1],
-    )[0];
-    const weakest = Object.entries(scores.categories).sort(
-      (a, b) => a[1] - b[1],
-    )[0];
-    body = `<div class="arcadeWhyGrid">
-      <section class="whyPanel"><div class="mini">Money</div><h2>${simulation.profit >= 0 ? "The studio made money." : "The studio finished in the red."}</h2><div class="arcadeSimpleRows"><div><span>Worldwide tickets</span><b>${moneyM(simulation.world)}</b></div><div><span>Studio revenue</span><b>${moneyM(why.totalStudioRevenue)}</b></div><div><span>Total cost</span><b>${moneyM(simulation.totalCost)}</b></div><div><span>Profit</span><b class="${simulation.profit >= 0 ? "positive" : "negative"}">${moneyM(simulation.profit)}</b></div><div><span>Break-even gross</span><b>${moneyM(why.breakEvenGross)}</b></div></div></section>
-      <section class="whyPanel"><div class="mini">Creative package</div><h2>${arcadeEsc(S.arcade.visualChoice)} + ${arcadeEsc(S.arcade.musicChoice)}</h2><p>The strongest lane was <b>${arcadeEsc(strongest?.[0] || "craft")}</b> at ${Math.round(strongest?.[1] || 0)}. The weakest was <b>${arcadeEsc(weakest?.[0] || "commercial")}</b> at ${Math.round(weakest?.[1] || 0)}.</p><div class="chipRow"><span class="chip active">${arcadeEsc(S.arcade.marketingLabel || S.marketing)}</span><span class="chip">${arcadeEsc(S.project.genre)}</span></div></section>
-      <section class="whyPanel"><div class="mini">What worked</div><ul class="whyList good">${why.helped
-        .slice(0, 3)
-        .map((item) => `<li>${item}</li>`)
-        .join("")}</ul></section>
-      <section class="whyPanel"><div class="mini">What held it back</div><ul class="whyList bad">${why.hurt
-        .slice(0, 3)
-        .map((item) => `<li>${item}</li>`)
-        .join("")}</ul></section>
-    </div>`;
-  }
-
-  if (S.endTab === "awards") {
-    body = `<div class="callout ${awards.contender ? "good" : ""}"><b>${awards.contender ? "Awards contender" : "Outside the main awards conversation"}</b><div class="sub">Award score ${awards.awardScore || 0} · Competition ${awards.competition || 0}</div></div>
-      <div class="awardsGrid"><div class="awardStat"><span class="mini">Film nominations</span><b>${awards.filmNoms}</b></div><div class="awardStat"><span class="mini">Film wins</span><b>${awards.filmWins}</b></div><div class="awardStat"><span class="mini">Acting nominations</span><b>${awards.actingNoms}</b></div><div class="awardStat"><span class="mini">Technical nominations</span><b>${awards.technicalNoms || 0}</b></div></div>
-      <div class="card"><h2>Share the run</h2><p class="sub">Download the existing summary card with the complete team.</p><button class="btn primary" id="download">Download PNG</button></div>`;
-  }
-
-  shell(`<div class="arcadePageHead"><div><div class="mini">Final screen</div><h1>Studio results.</h1></div><div class="arcadeStepPill">${arcadeEsc(scores.grade)} grade</div></div>
-    <div class="tabs">${[
-      ["results", "Scorecard"],
-      ["why", "Why"],
-      ["awards", "Awards & Share"],
-    ]
-      .map(
-        ([id, label]) =>
-          `<button class="tab ${S.endTab === id ? "active" : ""}" data-endtab="${id}">${label}</button>`,
-      )
-      .join("")}</div>${body}`);
-  $$("[data-endtab]").forEach(
-    (button) =>
-      (button.onclick = () => {
-        S.endTab = button.dataset.endtab;
-        render();
-      }),
-  );
-  if ($("#download")) $("#download").onclick = downloadSummary;
 };
 
 // Optional browser-console bridge for testing custom datasets and UI states.
@@ -8262,25 +8114,6 @@ const LEGACY_PRODUCTION_PAGE_V23 = function productionPageV23() {
   if (sub && arcadeIsShow())
     sub.textContent =
       "Choose a showrunner-shaped creative package, writers’ room, episode director, music and visual language.";
-};
-
-const ARCADE_RESULTS_V22 = resultsPage;
-const LEGACY_RESULTS_PAGE_V23 = function resultsPageV23() {
-  ARCADE_RESULTS_V22();
-  const sim = S.simulation;
-  if (!sim) return;
-  const hero = $(".arcadeGradeHero");
-  if (hero && sim.identity) {
-    hero.insertAdjacentHTML(
-      "afterend",
-      `<section class="v23Identity"><span>${sim.identity.icon}</span><div><div class="mini">Project identity</div><h2>${arcadeEsc(sim.identity.name)}</h2><p>${arcadeEsc(sim.identity.text)}</p></div></section>`,
-    );
-  }
-  if (arcadeIsShow() && S.endTab === "results") {
-    const stats = $(".arcadeResultStats");
-    if (stats)
-      stats.innerHTML = `<div><span>Pilot</span><b>${Math.round(sim.pilotScore)}</b></div><div><span>Completion</span><b>${Math.round(sim.completionRate)}%</b></div><div><span>Audience growth</span><b>${Math.round(sim.audienceGrowth)}</b></div><div><span>Finale satisfaction</span><b>${Math.round(sim.finaleSatisfaction)}</b></div><div><span>Renewal odds</span><b>${Math.round(sim.renewalOdds)}%</b></div>`;
-  }
 };
 
 // =============================================================================
@@ -8913,75 +8746,6 @@ arcadeBuildCrewPool = async function v24BuildCrewPool(kind) {
     } catch {}
   }
   return pool.slice(0, 5);
-};
-
-function v24MarketingRecommendations() {
-  const recommendations = arcadeCampaignRecommendations();
-  return recommendations.slice(0, 3);
-}
-
-const LEGACY_MARKETING_PAGE_V24 = function v24MarketingPage() {
-  v24EnsureState();
-  const sliders = v24NormalizeMarketing(S.arcade.marketingSliders);
-  S.arcade.marketingSliders = sliders;
-  const recs = v24MarketingRecommendations();
-  shell(`<div class="v24MarketingHero"><div><div class="mini">Step 4 · Campaign room</div><h1>Spend 100 strategy points.</h1><p>Push one lane higher and the others automatically give way. There is no all-100 cheat code. Tragic, we know.</p></div><div class="v24BudgetRing"><b>100</b><span>points assigned</span></div></div>
-  <section class="v24MarketingRecommendations"><div class="arcadeDrawerHead"><div><span class="mini">Marketing team memo</span><b>Three recommended mixes</b></div><span>Pick one, then fine-tune.</span></div><div class="v24PresetCards">${recs
-    .map((rec, index) => {
-      const preset =
-        ARCADE_MARKETING_PRESETS[rec.name] ||
-        ARCADE_MARKETING_PRESETS[Object.keys(ARCADE_MARKETING_PRESETS)[index]];
-      const normalized = v24NormalizeMarketing(preset);
-      return `<button class="v24PresetCard" data-v24-preset='${JSON.stringify(normalized)}'><span>0${index + 1}</span><div><h2>${arcadeEsc(rec.name)}</h2><p>${arcadeEsc(rec.reason)}</p><small>${normalized.awareness} awareness · ${normalized.fandom} fandom · ${normalized.prestige} prestige</small></div></button>`;
-    })
-    .join("")}</div></section>
-  <section class="v24MarketingConsole">${[
-    ["awareness", "Mass awareness", "Big opening, broad reach"],
-    ["fandom", "Fandom targeting", "Stronger word of mouth"],
-    ["prestige", "Prestige push", "Reviews and awards"],
-  ]
-    .map(
-      ([key, label, note]) =>
-        `<label class="v24MarketingLane"><div><span>${label}</span><small>${note}</small></div><input type="range" min="0" max="100" value="${sliders[key]}" data-v24-marketing="${key}"><b>${sliders[key]}</b><div class="v24LaneTrack"><span style="width:${sliders[key]}%"></span></div></label>`,
-    )
-    .join(
-      "",
-    )}<div class="v24AllocationTotal"><span>Total allocation</span><b>${sliders.awareness + sliders.fandom + sliders.prestige}/100</b></div></section>
-  <div class="arcadeFooterNav"><button class="btn" id="backProd">← Crew & style</button><button class="btn warn" id="launch">Launch release</button></div>`);
-  $$("[data-v24-preset]").forEach(
-    (button) =>
-      (button.onclick = () => {
-        S.arcade.marketingSliders = JSON.parse(button.dataset.v24Preset);
-        S.arcade.marketingLabel = "Recommended Mix";
-        S.marketing = arcadeSliderMarketingBase(S.arcade.marketingSliders);
-        render();
-      }),
-  );
-  $$("[data-v24-marketing]").forEach(
-    (input) =>
-      (input.oninput = () => {
-        S.arcade.marketingSliders = v24NormalizeMarketing(
-          S.arcade.marketingSliders,
-          input.dataset.v24Marketing,
-          +input.value,
-        );
-        S.arcade.marketingLabel = "Custom Allocation";
-        S.marketing = arcadeSliderMarketingBase(S.arcade.marketingSliders);
-        render();
-      }),
-  );
-  $("#backProd").onclick = () => {
-    S.screen = 2;
-    render();
-  };
-  $("#launch").onclick = async () => {
-    S.simulation = simulate();
-    await loadCompetition();
-    S.releaseRace = buildReleaseRace(S.simulation);
-    S.releaseRaceCompleted = false;
-    S.screen = 4;
-    render();
-  };
 };
 
 // Balance-data corrections: slightly less catastrophe dominance, more stability value,
