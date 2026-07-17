@@ -19,6 +19,15 @@ import {
   createScreenRegistry,
   selectScreenRenderer,
 } from "./core/screen-registry.js?v=38.5";
+import {
+  auditDraftRecommendationTelemetry,
+  runDeterministicParityRegression,
+  runScaleParitySimulation,
+} from "./sim/balance-simulator.js?v=38.5";
+import {
+  auditBudgetScopeTelemetry,
+  runBudgetScopeStressTest,
+} from "./sim/budget-scope-audit.js?v=38.5";
 
 // =============================================================================
 // DOM HELPERS AND STATIC GAME DATA
@@ -179,6 +188,12 @@ const BALANCE_TUNING = {
     2: 0.1,
     3: 0.04,
     4: 0.01,
+  },
+  sourceDraft: {
+    fitBudgetInfluence: 0.15,
+    budgetFriendlyWeight: 0.72,
+    starPowerWeight: 0.82,
+    parityTargetSpread: 0.06,
   },
   packages: {
     "Weak Package": {
@@ -6058,6 +6073,7 @@ function arcadeFreshState() {
     customMarketingName: "",
     finalScores: null,
     runBadges: [],
+    recommendationTelemetry: {},
   };
 }
 
@@ -6217,15 +6233,20 @@ baseAttrs = function arcadeBaseAttrs(p, slot) {
 
 function arcadeAuditionMods(p, slot, fit) {
   const raw = auditionMods(p, slot, fit);
-  const fitLift = clamp((fit - 45) / 18, 0, 3.5);
+  const fitLift = clamp((fit - 60) / 20, -2.8, 3.2);
+  const reliabilityLift = clamp((safe(p?.reliability, 55) - 55) / 28, -1.2, 1.8);
+  const craftLift = clamp((safe(p?.craft, 55) - 55) / 36, -1.1, 1.4);
+  const negativeGuard = fit >= 70 ? 0.85 : fit <= 52 ? 1.2 : 1;
   return Object.fromEntries(
     Object.entries(raw).map(([key, value]) => {
-      const floor = key === "craft" || key === "chemistry" ? 1.5 : 0.5;
+      const keyLift =
+        key === "craft" || key === "chemistry"
+          ? craftLift * 0.55
+          : reliabilityLift * 0.45;
+      const shaped = value * negativeGuard + fitLift + keyLift;
       return [
         key,
-        Math.round(
-          clamp(Math.abs(value) * 0.65 + floor + fitLift, 0.5, 10) * 10,
-        ) / 10,
+        Math.round(clamp(shaped, -8.5, 10.5) * 10) / 10,
       ];
     }),
   );
@@ -7237,6 +7258,8 @@ const LEGACY_PRODUCTION_PAGE_V22 = function arcadeProductionPage() {
         ]);
         S.arcade.crew.directorsPool = directors.map((p) => p.id);
         S.arcade.crew.writersPool = writers.map((p) => p.id);
+        v38RecordCrewRollTelemetry("directors", directors);
+        v38RecordCrewRollTelemetry("writers", writers);
         S.arcade.crew.spun = true;
         S.arcade.crew.spinning = true;
         render();
@@ -7271,6 +7294,7 @@ const LEGACY_PRODUCTION_PAGE_V22 = function arcadeProductionPage() {
           S.arcade.crew[
             kind === "directors" ? "directorsPool" : "writersPool"
           ] = people.map((p) => p.id);
+          v38RecordCrewRollTelemetry(kind, people);
           S.arcade.crew[
             kind === "directors" ? "selectedDirectors" : "selectedWriters"
           ] = [];
@@ -9332,11 +9356,23 @@ function actorHeadlineStat(label, value, average, spread, suffix = "") {
   `;
 }
 
+function actorHiddenStat(label, hint = "Revealed after audition") {
+  return `
+    <div class="v29HeadlineStat" title="${arcadeEsc(hint)}">
+      <span>${arcadeEsc(label)}</span>
+      <b>—</b>
+      <small>${arcadeEsc(hint)}</small>
+    </div>
+  `;
+}
+
 arcadeCandidateCard = function v25CandidateCard(p, slot) {
   const attrs = adjusted(p, slot, true);
   const before = adjusted(p, slot, false);
   const effects = v24FitEffects(p, slot);
   const audition = v24AuditionFor(slot, p.id);
+  const fitRevealed = Boolean(audition);
+  const visibleAfter = fitRevealed ? attrs : before;
   const shortlisted = (S.shortlists[slot] || []).includes(p.id);
   const selected = S.roster[slot] === p.id;
   let tier = "B",
@@ -9346,7 +9382,7 @@ arcadeCandidateCard = function v25CandidateCard(p, slot) {
     tierBefore = audition?.tierBeforeAudition || baseTalentTier(p, slot);
   } catch {}
   const recommendation = v25RecommendationBadge(p, slot);
-  const scores = v25RecommendationScores(p, slot);
+  const scores = fitRevealed ? v25RecommendationScores(p, slot) : null;
   const traits = p.workingStyleTraits || [];
   const sourceTitle =
     p.sourceMovieTitle ||
@@ -9363,34 +9399,50 @@ arcadeCandidateCard = function v25CandidateCard(p, slot) {
     <button type="button" class="v38LoadPhoto ${p.photo ? "v38PhotoReady" : ""}" data-load-photo="${p.id}">${p.photo ? "Reload photo" : "Load photo"}</button>
     <div class="arcadeActorBody"><div class="arcadeActorName"><div><h3>${arcadeEsc(p.name)}</h3><span>Age <b data-v38-age="${p.id}">${v25CastingAge(p, slot) ?? "Unavailable offline"}</b> in ${arcadeEsc(sourceTitle)} (${sourceYear})</span></div>${selected ? '<b class="arcadeHiredFlag">HIRED</b>' : ""}</div>
     <div class="v25ThreeScores">
-    ${actorHeadlineStat(
-      "Character fit",
-      attrs.fit,
-      ACTOR_CARD_AVERAGES.characterFit,
-      ACTOR_CARD_COLOR_SPREAD.characterFit,
-    )}
+    ${
+      fitRevealed
+        ? actorHeadlineStat(
+            "Character fit",
+            attrs.fit,
+            ACTOR_CARD_AVERAGES.characterFit,
+            ACTOR_CARD_COLOR_SPREAD.characterFit,
+          )
+        : actorHiddenStat("Character fit", "Reveal with audition")
+    }
 
-    ${actorHeadlineStat(
-      "Commercial",
-      scores["Commercial Pick"],
-      ACTOR_CARD_AVERAGES.commercial,
-      ACTOR_CARD_COLOR_SPREAD.commercial,
-    )}
+    ${
+      fitRevealed
+        ? actorHeadlineStat(
+            "Commercial",
+            scores["Commercial Pick"],
+            ACTOR_CARD_AVERAGES.commercial,
+            ACTOR_CARD_COLOR_SPREAD.commercial,
+          )
+        : actorHiddenStat("Commercial", "Hidden until audition")
+    }
 
-    ${actorHeadlineStat(
-      "Creative",
-      scores["Creative Pick"],
-      ACTOR_CARD_AVERAGES.creative,
-      ACTOR_CARD_COLOR_SPREAD.creative,
-    )}
+    ${
+      fitRevealed
+        ? actorHeadlineStat(
+            "Creative",
+            scores["Creative Pick"],
+            ACTOR_CARD_AVERAGES.creative,
+            ACTOR_CARD_COLOR_SPREAD.creative,
+          )
+        : actorHiddenStat("Creative", "Hidden until audition")
+    }
 
-    ${actorHeadlineStat(
-      "Confidence",
-      scores.confidence,
-      ACTOR_CARD_AVERAGES.confidence,
-      ACTOR_CARD_COLOR_SPREAD.confidence,
-      "%",
-    )}
+    ${
+      fitRevealed
+        ? actorHeadlineStat(
+            "Confidence",
+            scores.confidence,
+            ACTOR_CARD_AVERAGES.confidence,
+            ACTOR_CARD_COLOR_SPREAD.confidence,
+            "%",
+          )
+        : actorHiddenStat("Confidence", "Hidden until audition")
+    }
   </div>
 
   <details class="v29ActorDetails">
@@ -9405,14 +9457,14 @@ arcadeCandidateCard = function v25CandidateCard(p, slot) {
     </summary>
 
     <div class="v29ActorDetailsBody">
-    ${S.arcade.fitMode === "Realistic" ? `<div class="v24FitImpact"><div><span>Age fit</span><b class="${effects.age >= 0 ? "positive" : "negative"}">${arcadeEsc(effects.ageLabel)}</b><small>${effects.actorAge ?? "?"} vs target ${effects.targetAge ?? "?"}</small></div><div><span>Gender fit</span><b class="${gender.match === false ? "negative" : "positive"}">${arcadeEsc(gender.status)}</b><small>${gender.match === false ? "Fixed fit penalty; binary rule." : "No gender penalty."}</small></div></div>` : ""}
-    <div class="arcadeQuickStats">${arcadeStatCell("Craft", before.craft, attrs.craft)}${arcadeStatCell("Draw", before.draw, attrs.draw)}${arcadeStatCell("Reliability", before.reliability, attrs.reliability)}${arcadeStatCell("Momentum", before.momentum, attrs.momentum)}${arcadeStatCell("Chemistry", before.chemistry, attrs.chemistry)}</div>
+    ${S.arcade.fitMode === "Realistic" && fitRevealed ? `<div class="v24FitImpact"><div><span>Age fit</span><b class="${effects.age >= 0 ? "positive" : "negative"}">${arcadeEsc(effects.ageLabel)}</b><small>${effects.actorAge ?? "?"} vs target ${effects.targetAge ?? "?"}</small></div><div><span>Gender fit</span><b class="${gender.match === false ? "negative" : "positive"}">${arcadeEsc(gender.status)}</b><small>${gender.match === false ? "Fixed fit penalty; binary rule." : "No gender penalty."}</small></div></div>` : ""}
+    <div class="arcadeQuickStats">${arcadeStatCell("Craft", before.craft, visibleAfter.craft)}${arcadeStatCell("Draw", before.draw, visibleAfter.draw)}${arcadeStatCell("Reliability", before.reliability, visibleAfter.reliability)}${arcadeStatCell("Momentum", before.momentum, visibleAfter.momentum)}${arcadeStatCell("Chemistry", before.chemistry, visibleAfter.chemistry)}</div>
     ${traits.length ? `<div class="v25Traits"><span>Working style</span>${traits.map((t) => `<b title="${arcadeEsc(t.effect)}">${arcadeEsc(t.name)}</b>`).join("")}</div>` : ""}
-    ${audition ? `<div class="arcadeAuditionRead"><b>Audition locked in</b><span>${tierBefore !== tier ? `${tierBefore} → ${tier} tier` : "Revealed performance remains for this run."}</span></div>` : ""}
+    ${audition ? `<div class="arcadeAuditionRead"><b>Audition locked in</b><span>${tierBefore !== tier ? `${tierBefore} → ${tier} tier` : "Revealed performance remains for this run."}</span></div>` : `<div class="arcadeAuditionRead"><b>Scouting only</b><span>Fit and true upside/downside stay hidden until audition.</span></div>`}
     ${v25CareerTimeline(p)}
     </div>
   </details>
-    <div class="arcadeActorActions"><button class="btn" data-short="${p.id}">${shortlisted ? "★ Pinned" : "☆ Pin"}</button><button class="btn" data-aud="${p.id}" ${audition || arcadeAuditionCount() >= 3 ? "disabled" : ""}>${audition ? "Auditioned" : "Audition"}</button><button class="btn primary" data-hire="${p.id}">${selected ? "Selected" : "Hire"}</button></div>
+    <div class="arcadeActorActions"><button class="btn" data-short="${p.id}">${shortlisted ? "★ Pinned" : "☆ Pin"}</button><button class="btn" data-aud="${p.id}" ${audition || arcadeAuditionCount() >= 3 ? "disabled" : ""}>${audition ? "Auditioned" : "Reveal fit"}</button><button class="btn primary" data-hire="${p.id}">${selected ? "Selected" : "Hire"}</button></div>
     <button class="cameoBtn ${S.cameos[slot]?.personId === p.id ? "active" : ""}" data-cameo-person="${p.id}" data-cameo-slot="${slot}">${S.cameos[slot]?.personId === p.id ? `Cameo: ${arcadeEsc(S.cameos[slot].character)}` : "Use iconic-role cameo"}</button></div></article>`;
 };
 
@@ -10190,7 +10242,7 @@ function v27BuildPreReleaseStory(sim) {
       v27StoryEntry(
         "Casting",
         "Auditions alter expectations",
-        `${auditions} audition${auditions === 1 ? "" : "s"} revealed project-specific strengths that remain attached to those performers.`,
+        `${auditions} audition${auditions === 1 ? "" : "s"} revealed hidden role fit and role-specific upside/downside that now stay attached to those performers.`,
         "good",
         "✨",
       ),
@@ -11098,12 +11150,310 @@ const V30_CURRENT_YEAR = new Date().getFullYear();
 const V30_DRAFT_FILM_COUNT = 5;
 const V30_CANDIDATES_PER_SOURCE = 6;
 const V30_SOURCE_BATCH_SIZE = 2;
-const V30_MAX_SOURCE_ATTEMPTS = 10;
+const V30_MAX_SOURCE_ATTEMPTS = 20;
+const V30_DRAFT_ARCHETYPES = [
+  "current-fit",
+  "character-fit",
+  "star-power",
+  "wildcard",
+  "budget-friendly",
+];
+const V30_DRAFT_ARCHETYPE_LABELS = {
+  "current-fit": "Current movie fit",
+  "character-fit": "Character fit",
+  "star-power": "Star-power",
+  wildcard: "Wildcard",
+  "budget-friendly": "Budget-friendly",
+  fallback: "Curated fallback",
+};
+
+function v30ScaleBudgetBand(scale = S.project.scale) {
+  const [minBudget = 1, maxBudget = 300] = SCALE[scale]?.budget || [1, 300];
+  return {
+    min: Math.max(1, safe(minBudget, 1)),
+    max: Math.max(1, safe(maxBudget, 300)),
+    center: average([safe(minBudget, 1), safe(maxBudget, 300)]),
+  };
+}
+
+function v38BudgetScope(scale = S.project.scale) {
+  if (scale === "Microbudget") return "low";
+  if (scale === "Independent") return "low-mid";
+  if (scale === "Mid-Budget") return "mid";
+  if (scale === "Studio Event") return "mid-high";
+  return "high";
+}
+
+function v38PreferredCrewTiers(scale = S.project.scale) {
+  const scope = v38BudgetScope(scale);
+  if (scope === "low") return ["C", "B", "A"];
+  if (scope === "low-mid") return ["B", "C", "A"];
+  if (scope === "mid") return ["B", "A", "S"];
+  if (scope === "mid-high") return ["A", "B", "S"];
+  return ["A", "S", "B"];
+}
+
+function v38TierThresholds(scale = S.project.scale) {
+  const scope = v38BudgetScope(scale);
+  if (scope === "low") return { S: 90, A: 80, B: 69, C: 58 };
+  if (scope === "low-mid") return { S: 87, A: 78, B: 67, C: 57 };
+  if (scope === "mid") return { S: 84, A: 75, B: 65, C: 56 };
+  if (scope === "mid-high") return { S: 82, A: 73, B: 64, C: 55 };
+  return { S: 80, A: 71, B: 63, C: 54 };
+}
+
+function v38TierFromScore(score, scale = S.project.scale) {
+  const thresholds = v38TierThresholds(scale);
+  if (score >= thresholds.S) return "S";
+  if (score >= thresholds.A) return "A";
+  if (score >= thresholds.B) return "B";
+  if (score >= thresholds.C) return "C";
+  return "D";
+}
+
+function v38EstimatedPackageTarget(scale = S.project.scale) {
+  const originalBudget = Math.max(
+    1,
+    safe(S.reference?.budgetM, average(SCALE[scale].budget)),
+  );
+  const share = safe(
+    V34_BUDGET?.shares?.[scale],
+    V34_BUDGET_DEFAULTS?.shares?.[scale] || 0.24,
+  );
+  return originalBudget * share;
+}
+
+function v38BudgetOptionCaps(scale = S.project.scale) {
+  const target = Math.max(0.01, v38EstimatedPackageTarget(scale));
+  return {
+    crewDirector: target * 0.24,
+    crewWriter: target * 0.19,
+    creativeDuo: target * 0.32,
+  };
+}
+
+function v38RecordCrewRollTelemetry(kind, people) {
+  ensureArcadeState();
+  S.arcade.budgetAudit = S.arcade.budgetAudit || { crewRolls: [], styleRolls: [] };
+  const caps = v38BudgetOptionCaps();
+  const slot = kind === "directors" ? "Director 1" : "Writer 1";
+  const cap = kind === "directors" ? caps.crewDirector : caps.crewWriter;
+  const options = (people || []).map((candidate) => ({
+    id: candidate.id,
+    tier: v32TalentTier(candidate, slot),
+    fee: v32PersonFee(candidate, slot),
+  }));
+  S.arcade.budgetAudit.crewRolls.push({
+    scale: S.project.scale,
+    kind,
+    maxAffordableFee: cap,
+    packageTarget: v38EstimatedPackageTarget(),
+    options,
+    at: Date.now(),
+  });
+}
+
+function v38RecordStyleRollTelemetry(composers, cinematographers, duoPackages) {
+  ensureArcadeState();
+  S.arcade.budgetAudit = S.arcade.budgetAudit || { crewRolls: [], styleRolls: [] };
+  const caps = v38BudgetOptionCaps();
+  const composerById = new Map((composers || []).map((candidate) => [candidate.id, candidate]));
+  const cameraById = new Map(
+    (cinematographers || []).map((candidate) => [candidate.id, candidate]),
+  );
+  const options = (duoPackages || []).map((pkg) => {
+    const composer = composerById.get(pkg.composerId) || person(pkg.composerId);
+    const camera = cameraById.get(pkg.cinematographerId) || person(pkg.cinematographerId);
+    return {
+      id: pkg.id,
+      fit: safe(pkg.fit),
+      fee: v36CreativeDuoFee(pkg),
+      composerTier: composer ? v35CrewTier(composer, "composer") : "D",
+      cinematographerTier: camera ? v35CrewTier(camera, "cinematographer") : "D",
+    };
+  });
+  S.arcade.budgetAudit.styleRolls.push({
+    scale: S.project.scale,
+    maxAffordableFee: caps.creativeDuo,
+    packageTarget: v38EstimatedPackageTarget(),
+    options,
+    at: Date.now(),
+  });
+}
+
+function v30EstimatedMovieBudgetM(stub) {
+  if (safe(stub?.budget) > 0) return safe(stub.budget) / 1e6;
+  const popularity = safe(stub?.popularity, 35);
+  const votes = safe(stub?.vote_count, 200);
+  const rating = safe(stub?.vote_average, 6.2);
+  const score =
+    popularity * 0.52 + Math.log10(votes + 1) * 11 + Math.max(0, rating - 5) * 7;
+  return clamp(score, 2, 320);
+}
+
+function v30BudgetAffinityScore(stub, scale = S.project.scale) {
+  const budget = v30EstimatedMovieBudgetM(stub);
+  const band = v30ScaleBudgetBand(scale);
+  if (budget >= band.min && budget <= band.max) return 100;
+  const distance = budget < band.min ? band.min - budget : budget - band.max;
+  const spread = Math.max(1, band.max - band.min);
+  return clamp(100 - (distance / spread) * 110, 0, 100);
+}
+
+function v30Tokenize(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3);
+}
+
+function v30CurrentMovieFitScore(stub) {
+  const sourceYear = safe(S.reference?.year, safe(S.project?.year, V30_CURRENT_YEAR));
+  const movieYear = Number.parseInt(String(stub?.release_date || "").slice(0, 4), 10);
+  const yearGap = Math.abs(safe(movieYear, sourceYear) - sourceYear);
+  const yearScore = clamp(100 - yearGap * 2.8, 10, 100);
+  const referenceTokens = new Set(v30Tokenize(S.reference?.title));
+  const movieTokens = new Set(v30Tokenize(`${stub?.title || ""} ${stub?.overview || ""}`));
+  let overlap = 0;
+  referenceTokens.forEach((token) => {
+    if (movieTokens.has(token)) overlap += 1;
+  });
+  const overlapScore = referenceTokens.size
+    ? (overlap / referenceTokens.size) * 100
+    : 40;
+  return clamp(yearScore * 0.72 + overlapScore * 0.28, 0, 100);
+}
+
+function v30CharacterFitScore(stub, slot) {
+  const roleTokens = v30Tokenize(roleName(slot));
+  const movieTokens = new Set(v30Tokenize(`${stub?.title || ""} ${stub?.overview || ""}`));
+  let hits = 0;
+  roleTokens.forEach((token) => {
+    if (movieTokens.has(token)) hits += 1;
+  });
+  const roleScore = roleTokens.length ? (hits / roleTokens.length) * 100 : 35;
+  const genreIds = Array.isArray(stub?.genre_ids) ? stub.genre_ids : [];
+  const genreScore = genreIds.includes(GENRE_IDS[S.project.genre])
+    ? 100
+    : 45;
+  return clamp(roleScore * 0.72 + genreScore * 0.28, 0, 100);
+}
+
+function v30StarPowerScore(stub) {
+  const popularity = clamp((safe(stub?.popularity, 0) / 130) * 100, 0, 100);
+  const votes = clamp((Math.log10(safe(stub?.vote_count, 0) + 1) / 5.4) * 100, 0, 100);
+  const rating = clamp((safe(stub?.vote_average, 0) / 10) * 100, 0, 100);
+  return clamp(popularity * 0.58 + votes * 0.27 + rating * 0.15, 0, 100);
+}
+
+function v30ArchetypeScores(stub, slot) {
+  const budgetAffinity = v30BudgetAffinityScore(stub);
+  const currentFit = v30CurrentMovieFitScore(stub);
+  const characterFit = v30CharacterFitScore(stub, slot);
+  const starPower = v30StarPowerScore(stub);
+  const fitBudgetInfluence = safe(BALANCE_TUNING.sourceDraft?.fitBudgetInfluence, 0.15);
+  const fitWeight = clamp(1 - fitBudgetInfluence, 0.8, 0.9);
+  return {
+    budgetAffinity,
+    "current-fit": currentFit * fitWeight + budgetAffinity * fitBudgetInfluence,
+    "character-fit":
+      characterFit * fitWeight + budgetAffinity * fitBudgetInfluence,
+    "star-power": starPower * safe(BALANCE_TUNING.sourceDraft?.starPowerWeight, 0.82) +
+      currentFit * (1 - safe(BALANCE_TUNING.sourceDraft?.starPowerWeight, 0.82)),
+    wildcard: Math.random() * 100,
+    "budget-friendly":
+      budgetAffinity * safe(BALANCE_TUNING.sourceDraft?.budgetFriendlyWeight, 0.72) +
+      currentFit * 0.2 +
+      (100 - starPower) * 0.08,
+  };
+}
+
+function v30PickDraftSources(stubs, slot) {
+  const scored = stubs.map((stub) => ({
+    stub,
+    score: v30ArchetypeScores(stub, slot),
+  }));
+  const used = new Set();
+  const picks = [];
+  for (const archetype of V30_DRAFT_ARCHETYPES) {
+    const ranked = scored
+      .slice()
+      .sort((a, b) => safe(b.score[archetype]) - safe(a.score[archetype]));
+    const selected = ranked.find(({ stub }) => !used.has(stub.id));
+    if (!selected) continue;
+    used.add(selected.stub.id);
+    picks.push({
+      stub: selected.stub,
+      archetype,
+      score: selected.score,
+    });
+  }
+
+  for (const candidate of scored) {
+    if (picks.length >= V30_DRAFT_FILM_COUNT) break;
+    if (used.has(candidate.stub.id)) continue;
+    used.add(candidate.stub.id);
+    picks.push({
+      stub: candidate.stub,
+      archetype: "fallback",
+      score: candidate.score,
+    });
+  }
+
+  return picks
+    .slice(0, V30_DRAFT_FILM_COUNT)
+    .sort(() => Math.random() - 0.5);
+}
+
+function v30SourceArchetypeLabel(entry) {
+  return (
+    V30_DRAFT_ARCHETYPE_LABELS[entry?.film?.archetypeId] ||
+    entry?.film?.archetypeLabel ||
+    "Curated draft"
+  );
+}
+
+function v30RecordDraftTelemetry(slot, pools) {
+  ensureArcadeState();
+  S.arcade.recommendationTelemetry = S.arcade.recommendationTelemetry || {};
+  S.arcade.recommendationTelemetry[slot] = {
+    slot,
+    createdAt: Date.now(),
+    scale: S.project.scale,
+    entries: (pools || []).map((entry, index) => ({
+      sourceIndex: index,
+      sourceId: entry?.film?.id || null,
+      title: entry?.film?.title || null,
+      archetype: entry?.film?.archetypeId || "fallback",
+      budgetAffinity: safe(entry?.film?.budgetAffinity),
+      estimatedBudgetM: safe(entry?.film?.estimatedBudgetM),
+      scoreBreakdown: entry?.film?.archetypeScores || {},
+    })),
+    selectedSourceIndex: clamp(
+      safe(S.sourceIndex?.[slot], 0),
+      0,
+      Math.max(0, (pools || []).length - 1),
+    ),
+  };
+}
+
+function v30TrackDraftSelection(slot, sourceIndex) {
+  const telemetry = S.arcade?.recommendationTelemetry?.[slot];
+  if (!telemetry) return;
+  telemetry.selectedSourceIndex = sourceIndex;
+  const selected = telemetry.entries?.[sourceIndex];
+  if (selected) {
+    telemetry.selectedSourceId = selected.sourceId;
+    telemetry.selectedArchetype = selected.archetype;
+  }
+}
 
 function v30EnsureState() {
   v25EnsureState();
   S.arcade.version = "30.0";
   S.arcade.castRerollsUsed = S.arcade.castRerollsUsed || {};
+  S.arcade.recommendationTelemetry = S.arcade.recommendationTelemetry || {};
   S.arcade.releaseYear = clamp(
     safe(S.arcade.releaseYear, safe(S.reference?.year, V30_CURRENT_YEAR)),
     safe(V28_TMDB_YEAR_BOUNDS?.min, 1874),
@@ -11278,17 +11628,28 @@ buildPool = async function v30BuildPool(slot) {
   const films = await comparableMovies(slot);
   const output = [];
   const sourceAttempts = films.slice(0, V30_MAX_SOURCE_ATTEMPTS);
+  const draftPicks = v30PickDraftSources(sourceAttempts, slot);
+  const selectedById = new Map(
+    draftPicks.map((pick) => [pick.stub.id, pick]),
+  );
+  const orderedAttempts = [
+    ...draftPicks.map((pick) => pick.stub),
+    ...sourceAttempts.filter((stub) => !selectedById.has(stub.id)),
+  ];
+  const builtSourceIds = new Set();
 
   for (
     let index = 0;
-    index < sourceAttempts.length;
+    index < orderedAttempts.length;
     index += V30_SOURCE_BATCH_SIZE
   ) {
     if (output.length >= V30_DRAFT_FILM_COUNT) break;
-    const batch = sourceAttempts.slice(index, index + V30_SOURCE_BATCH_SIZE);
+    const batch = orderedAttempts.slice(index, index + V30_SOURCE_BATCH_SIZE);
 
     await Promise.all(
       batch.map(async (stub) => {
+        if (output.length >= V30_DRAFT_FILM_COUNT || builtSourceIds.has(stub.id))
+          return;
         try {
           const movie = await api(`/movie/${stub.id}`, {
             append_to_response: "credits",
@@ -11359,6 +11720,12 @@ buildPool = async function v30BuildPool(slot) {
 
           if (people.length < 2) return;
 
+          const draftPick = selectedById.get(stub.id) || null;
+          const archetypeId = draftPick?.archetype || "fallback";
+          const scoreBreakdown = draftPick?.score || v30ArchetypeScores(stub, slot);
+          const estimatedBudgetM = v30EstimatedMovieBudgetM(movie);
+          const budgetAffinity = v30BudgetAffinityScore(movie);
+
           output.push({
             film: {
               id: movie.id,
@@ -11380,9 +11747,26 @@ buildPool = async function v30BuildPool(slot) {
               popularity: safe(movie.popularity),
               rating: safe(movie.vote_average),
               votes: safe(movie.vote_count),
+              estimatedBudgetM,
+              budgetAffinity,
+              archetypeId,
+              archetypeLabel:
+                V30_DRAFT_ARCHETYPE_LABELS[archetypeId] || "Curated draft",
+              archetypeScores: {
+                "current-fit": Math.round(safe(scoreBreakdown["current-fit"])),
+                "character-fit": Math.round(
+                  safe(scoreBreakdown["character-fit"]),
+                ),
+                "star-power": Math.round(safe(scoreBreakdown["star-power"])),
+                wildcard: Math.round(safe(scoreBreakdown.wildcard)),
+                "budget-friendly": Math.round(
+                  safe(scoreBreakdown["budget-friendly"]),
+                ),
+              },
             },
             people,
           });
+          builtSourceIds.add(movie.id);
 
           if (!S.usedSources.includes(movie.id)) S.usedSources.push(movie.id);
         } catch (error) {
@@ -11395,8 +11779,9 @@ buildPool = async function v30BuildPool(slot) {
   if (!output.length)
     throw new Error("No valid comparable source films found.");
 
-  output.sort((a, b) => b.film.popularity - a.film.popularity);
-  return output.slice(0, V30_DRAFT_FILM_COUNT);
+  const finalPools = output.slice(0, V30_DRAFT_FILM_COUNT);
+  v30RecordDraftTelemetry(slot, finalPools);
+  return finalPools;
 };
 
 function v30MovieDraftTile(entry, sourceIndex, selectedIndex, rank) {
@@ -11415,9 +11800,9 @@ function v30MovieDraftTile(entry, sourceIndex, selectedIndex, rank) {
       ${featured ? '<span class="v30MovieRibbon">Most popular</span>' : ""}
       ${selected ? '<span class="v30MovieSelected">Selected</span>' : ""}
       <div class="v30MovieTileCopy">
-        <small>${arcadeEsc(film.genre || S.project.genre)}</small>
+        <small>${arcadeEsc(v30SourceArchetypeLabel(entry))}</small>
         <h3>${arcadeEsc(film.title)}</h3>
-        <p>${film.year} · ★ ${film.rating.toFixed(1)}</p>
+        <p>${film.year} · ★ ${film.rating.toFixed(1)} · ${arcadeEsc(film.genre || S.project.genre)}</p>
       </div>
     </button>
   `;
@@ -11450,7 +11835,7 @@ const ACTIVE_HIRE_PAGE_V30 = async function v30HirePage() {
   if (!S.sourcePools[slot]?.length) {
     shell(`
       <h1>Rolling five similar movies…</h1>
-      <div class="callout">Building five source casts from the same genre and nearby eras.</div>
+      <div class="callout">Building current-fit, character-fit, star-power, wildcard, and budget-friendly source casts.</div>
     `);
     return ensurePool(slot);
   }
@@ -11553,6 +11938,7 @@ const ACTIVE_HIRE_PAGE_V30 = async function v30HirePage() {
   $$("[data-source]").forEach((button) => {
     button.onclick = () => {
       S.sourceIndex[slot] = Number(button.dataset.source);
+      v30TrackDraftSelection(slot, S.sourceIndex[slot]);
       S.tierCache[slot] = {};
       render();
     };
@@ -11601,7 +11987,10 @@ const ACTIVE_HIRE_PAGE_V30 = async function v30HirePage() {
       if (event.target.closest("[data-short-remove]")) return;
       const id = button.dataset.savedOpen;
       const sourceIndex = S.arcade.savedPickSources?.[slot]?.[id];
-      if (Number.isFinite(sourceIndex)) S.sourceIndex[slot] = sourceIndex;
+      if (Number.isFinite(sourceIndex)) {
+        S.sourceIndex[slot] = sourceIndex;
+        v30TrackDraftSelection(slot, sourceIndex);
+      }
       S.arcade.cardFocus = id;
       render();
     };
@@ -11820,7 +12209,7 @@ function v31MovieDraftTile(
       ${mostPopular ? '<span class="v30MovieRibbon">Most popular</span>' : ""}
       ${selected ? '<span class="v30MovieSelected">Selected</span>' : ""}
       <div class="v30MovieTileCopy">
-        <small>${arcadeEsc(v31MovieIdentity(film))}</small>
+        <small>${arcadeEsc(v30SourceArchetypeLabel(entry))}</small>
         <h3>${arcadeEsc(film.title)}</h3>
         <p>${film.year} · ★ ${film.rating.toFixed(1)} · ${arcadeEsc(film.genre || S.project.genre)}</p>
       </div>
@@ -12020,6 +12409,57 @@ function v36StyleCrewKindForCredit(credit) {
   return null;
 }
 
+function v38SelectBudgetScopedStyleCrewPool(candidates, kind) {
+  const preferred = v38PreferredCrewTiers();
+  const caps = v38BudgetOptionCaps();
+  const slot = v31StyleCrewSlot(kind);
+  const maxFee =
+    kind === "composer" ? caps.creativeDuo * 0.5 : caps.creativeDuo * 0.52;
+  const unique = [
+    ...new Map((candidates || []).map((candidate) => [candidate.id, candidate])).values(),
+  ];
+  const tierBuckets = {
+    S: [],
+    A: [],
+    B: [],
+    C: [],
+    D: [],
+  };
+
+  unique.forEach((candidate) => {
+    const tier = v35CrewTier(candidate, kind);
+    if (tierBuckets[tier]) tierBuckets[tier].push(candidate);
+  });
+
+  const selected = [];
+  const seen = new Set();
+  preferred.forEach((tier) => {
+    const candidate = (tierBuckets[tier] || [])
+      .slice()
+      .sort((first, second) => {
+        const firstFee = v32PersonFee(first, slot);
+        const secondFee = v32PersonFee(second, slot);
+        const firstDistance = Math.abs(firstFee - maxFee);
+        const secondDistance = Math.abs(secondFee - maxFee);
+        return firstDistance - secondDistance;
+      })
+      .find((item) => !seen.has(item.id));
+    if (!candidate || selected.length >= 3) return;
+    seen.add(candidate.id);
+    selected.push(candidate);
+  });
+
+  if (selected.length < 3) {
+    unique.forEach((candidate) => {
+      if (selected.length >= 3 || seen.has(candidate.id)) return;
+      seen.add(candidate.id);
+      selected.push(candidate);
+    });
+  }
+
+  return selected.slice(0, 3);
+}
+
 async function v36AllSettledBatched(
   taskFactories,
   batchSize = V36_STYLE_CREW_CONCURRENCY,
@@ -12094,11 +12534,13 @@ async function v36BuildStyleCrewPools() {
     if (result.status !== "fulfilled" || !result.value.candidate) continue;
     hydrated[result.value.kind].push(result.value.candidate);
   }
-  const composers = hydrated.composer.sort(
-    (a, b) => safe(b.craft) - safe(a.craft),
+  const composers = v38SelectBudgetScopedStyleCrewPool(
+    hydrated.composer,
+    "composer",
   );
-  const cinematographers = hydrated.cinematographer.sort(
-    (a, b) => safe(b.craft) - safe(a.craft),
+  const cinematographers = v38SelectBudgetScopedStyleCrewPool(
+    hydrated.cinematographer,
+    "cinematographer",
   );
   return { composers, cinematographers };
 }
@@ -12127,6 +12569,11 @@ async function v31EnsureStyleCrewPools(force = false) {
         crew.composerPool,
         crew.cinematographerPool,
         crew.duoRoll,
+      );
+      v38RecordStyleRollTelemetry(
+        composers,
+        cinematographers,
+        crew.duoPackages,
       );
       if (crew.duoPackages.length < 3) {
         throw new Error("Not enough real artists were returned for three duos.");
@@ -12281,8 +12728,10 @@ const ACTIVE_HIRE_PAGE_V31 = async function v31HirePage() {
   $$("[data-source]").forEach((button) => {
     button.onclick = () => {
       v31WithViewTransition(() => {
-        S.sourceIndex[S.activeSlot] = Number(button.dataset.source);
-        S.tierCache[S.activeSlot] = {};
+        const activeSlot = S.activeSlot;
+        S.sourceIndex[activeSlot] = Number(button.dataset.source);
+        v30TrackDraftSelection(activeSlot, S.sourceIndex[activeSlot]);
+        S.tierCache[activeSlot] = {};
         render();
       });
     };
@@ -12417,11 +12866,7 @@ function v32TalentTier(p, slot) {
     return talentTier(p, slot);
   } catch {
     const score = stableTierScore(p, slot);
-    if (score >= 82) return "S";
-    if (score >= 73) return "A";
-    if (score >= 64) return "B";
-    if (score >= 55) return "C";
-    return "D";
+    return v38TierFromScore(score);
   }
 }
 
@@ -12501,6 +12946,36 @@ function v32BudgetWidget() {
   `;
 }
 
+function v38ForecastConfidenceLabel(confidence) {
+  const value = safe(confidence, 60);
+  if (value >= 80) return "Low uncertainty";
+  if (value >= 65) return "Medium uncertainty";
+  return "High uncertainty";
+}
+
+function v38FinancialForecastWidget() {
+  if (!S.reference || S.screen < 1 || S.screen > 4) return "";
+  try {
+    const simulation = simulate();
+    const projection = v27Projection(simulation);
+    const why = buildWhyAnalysis(simulation, null);
+    const uncertainty = clamp(100 - safe(projection.confidence, 60), 8, 58);
+    return `
+      <section class="v32BudgetWidget">
+        <div class="v32BudgetHeader">
+          <div><span>Forecast</span><b>${moneyM(projection.grossLow)} – ${moneyM(projection.grossHigh)}</b></div>
+          <strong>${projection.confidence}%</strong>
+        </div>
+        <div class="v32BudgetTrack"><span style="width:${clamp(projection.confidence, 0, 100)}%"></span></div>
+        <small>${v38ForecastConfidenceLabel(projection.confidence)} · ±${Math.round(uncertainty)}% range</small>
+        <small>Estimated break-even: ${moneyM(why.breakEvenGross)} · ${why.breakEvenGap >= 0 ? `${moneyM(why.breakEvenGap)} above` : `${moneyM(Math.abs(why.breakEvenGap))} short`}</small>
+      </section>
+    `;
+  } catch {
+    return "";
+  }
+}
+
 // -----------------------------------------------------------------------------
 // SIMPLE FIVE-POSTER SOURCE DRAFT
 // -----------------------------------------------------------------------------
@@ -12519,6 +12994,7 @@ v30RenderDraftMosaic = function v32RenderDraftPosters(pools, selectedIndex) {
           <div class="v32DraftPosterCopy">
             <b>${arcadeEsc(film.title)}</b>
             <span>${film.year} · ★ ${safe(film.rating).toFixed(1)}</span>
+            <span>${arcadeEsc(v30SourceArchetypeLabel(entry))}</span>
           </div>
         </button>
       `;
@@ -12529,7 +13005,7 @@ v30RenderDraftMosaic = function v32RenderDraftPosters(pools, selectedIndex) {
 // All major crew wheels now show three people at a time.
 const V32_ARCADE_BUILD_CREW_POOL_BASE = arcadeBuildCrewPool;
 arcadeBuildCrewPool = async function v32ArcadeBuildCrewPool(kind) {
-  return (await V32_ARCADE_BUILD_CREW_POOL_BASE(kind)).slice(0, 3);
+  return V32_ARCADE_BUILD_CREW_POOL_BASE(kind);
 };
 
 // -----------------------------------------------------------------------------
@@ -12591,7 +13067,26 @@ function v32MarketingFit(strategy) {
     : 50;
   const baseBonus =
     strategy.base === "Prestige Campaign" ? avgCraft * 0.35 : avgDraw * 0.35;
-  return clamp(28 + genreMatch + scaleMatch + baseBonus * 0.35, 0, 100);
+  const budgetFit = v38MarketingBudgetFit(strategy);
+  return clamp(
+    24 + genreMatch + scaleMatch + baseBonus * 0.3 + budgetFit * 0.18,
+    0,
+    100,
+  );
+}
+
+function v38MarketingScaleSpendFactor(scale = S.project.scale) {
+  if (scale === "Microbudget") return 0.72;
+  if (scale === "Independent") return 0.84;
+  if (scale === "Mid-Budget") return 1;
+  if (scale === "Studio Event") return 1.06;
+  return 1.12;
+}
+
+function v38MarketingBudgetFit(strategy) {
+  const target = v38MarketingScaleSpendFactor();
+  const distance = Math.abs(safe(strategy?.spendMultiplier, 1) - target);
+  return clamp(100 - distance * 180, 8, 100);
 }
 
 function v38MarketingFitMultiplier(score) {
@@ -12633,6 +13128,16 @@ function v32FitGrade(score) {
 const ACTIVE_MARKETING_PAGE_V32 = function v32MarketingPage() {
   v32EnsureState();
   const selected = S.arcade.marketingStrategy;
+  const orderedStrategies = Object.entries(V32_MARKETING_STRATEGIES).sort(
+    ([firstName, firstStrategy], [secondName, secondStrategy]) => {
+      const firstSelected = firstName === selected ? 1 : 0;
+      const secondSelected = secondName === selected ? 1 : 0;
+      if (firstSelected !== secondSelected) return secondSelected - firstSelected;
+      return (
+        v38MarketingBudgetFit(secondStrategy) - v38MarketingBudgetFit(firstStrategy)
+      );
+    },
+  );
   shell(`
     <div class="v32MarketingHeader">
       <div><span class="mini">Step 4 · Marketing</span><h1>Choose one campaign plan.</h1><p>Each strategy locks its trailer style, promotional approach and spending level. No manual slider homework.</p></div>
@@ -12640,9 +13145,10 @@ const ACTIVE_MARKETING_PAGE_V32 = function v32MarketingPage() {
     </div>
     ${v38LedgerSummaryMarkup("The campaign inherits this thesis")}
     <div class="v32MarketingGrid">
-      ${Object.entries(V32_MARKETING_STRATEGIES)
+      ${orderedStrategies
         .map(([name, strategy]) => {
           const score = v32MarketingFit(strategy);
+          const budgetFit = v38MarketingBudgetFit(strategy);
           return `
             <button class="v32MarketingCard ${selected === name ? "selected" : ""}" data-v32-marketing="${arcadeEsc(name)}">
               <span class="v32MarketingIcon">${strategy.icon}</span>
@@ -12651,6 +13157,7 @@ const ACTIVE_MARKETING_PAGE_V32 = function v32MarketingPage() {
               <div class="v32MarketingDetails">
                 <span><b>Promotion</b>${arcadeEsc(strategy.promotion)}</span>
                 <span><b>Spend</b>${Math.round(strategy.spendMultiplier * 100)}% of standard marketing</span>
+                <span><b>Budget fit</b>${Math.round(budgetFit)}%</span>
               </div>
             </button>
           `;
@@ -12714,13 +13221,36 @@ simulate = function v32Simulate() {
   const strategy =
     V32_MARKETING_STRATEGIES[S.arcade.marketingStrategy] ||
     V32_MARKETING_STRATEGIES["Blockbuster Blitz"];
+  const scaleSpendFactor = v38MarketingScaleSpendFactor();
   simulation.marketing *=
-    strategy.spendMultiplier * V32_BALANCE.marketingSpendStrength;
+    strategy.spendMultiplier *
+    V32_BALANCE.marketingSpendStrength *
+    scaleSpendFactor;
   simulation.marketingStrategy = S.arcade.marketingStrategy;
   simulation.marketingFit = v32MarketingFit(strategy);
   simulation.marketingFitMultiplier = v38MarketingFitMultiplier(
     simulation.marketingFit,
   );
+  const marketingLuck = rng(
+    `v38-marketing-luck|${S.runSeed || "run"}|${S.project.scale}|${strategy.base}`,
+  );
+  const breakoutChance =
+    ["Microbudget", "Independent"].includes(S.project.scale)
+      ? clamp((simulation.marketingFit - 62) / 280, 0.04, 0.2)
+      : 0.03;
+  if (marketingLuck() < breakoutChance) {
+    const breakoutBoost =
+      ["Microbudget", "Independent"].includes(S.project.scale)
+        ? 1.16 + marketingLuck() * 0.44
+        : 1.08 + marketingLuck() * 0.24;
+    simulation.world *= breakoutBoost;
+    simulation.domestic *= breakoutBoost;
+    simulation.opening *= Math.sqrt(breakoutBoost);
+    simulation.marketingBreakout = true;
+    simulation.marketingBreakoutBoost = breakoutBoost;
+  } else {
+    simulation.marketingBreakout = false;
+  }
   simulation.world *= simulation.marketingFitMultiplier;
   simulation.domestic *= simulation.marketingFitMultiplier;
   simulation.opening *= Math.sqrt(simulation.marketingFitMultiplier);
@@ -12742,7 +13272,10 @@ simulate = function v32Simulate() {
 const V32_SIDEBAR_BASE = sidebar;
 sidebar = function v32Sidebar() {
   const html = V32_SIDEBAR_BASE();
-  return html.replace("</aside>", `${v32BudgetWidget()}</aside>`);
+  return html.replace(
+    "</aside>",
+    `${v32BudgetWidget()}${v38FinancialForecastWidget()}</aside>`,
+  );
 };
 
 // -----------------------------------------------------------------------------
@@ -12793,8 +13326,10 @@ const ACTIVE_HIRE_PAGE_V32 = async function v32HirePage() {
   if (renderId !== ACTIVE_RENDER_ID || S.screen !== 1) return;
   $$("[data-source]").forEach((button) => {
     button.onclick = () => {
-      S.sourceIndex[S.activeSlot] = Number(button.dataset.source);
-      S.tierCache[S.activeSlot] = {};
+      const activeSlot = S.activeSlot;
+      S.sourceIndex[activeSlot] = Number(button.dataset.source);
+      v30TrackDraftSelection(activeSlot, S.sourceIndex[activeSlot]);
+      S.tierCache[activeSlot] = {};
       render();
     };
   });
@@ -12977,6 +13512,7 @@ v30RenderDraftMosaic = function v33RenderDraftPosters(pools, selectedIndex) {
           <span class="v33PosterMeta">
             <b>${arcadeEsc(film.title)}</b>
             <small>${film.year} · ★ ${safe(film.rating).toFixed(1)}</small>
+            <small>${arcadeEsc(v30SourceArchetypeLabel(entry))}</small>
           </span>
         </button>
       `;
@@ -13003,7 +13539,8 @@ function v33StudioBudgetPlan() {
     originalProduction *
     safe(economy.marketingRate, 0.3) *
     safe(strategy.spendMultiplier, 1) *
-    V32_BALANCE.marketingSpendStrength;
+    V32_BALANCE.marketingSpendStrength *
+    v38MarketingScaleSpendFactor();
   const reserveTarget = originalProduction * V33_BALANCE.reserveShare;
   const talentOverage = Math.max(0, talentSpent - talentTarget);
   const reserveRemaining = Math.max(0, reserveTarget - talentOverage);
@@ -13115,7 +13652,7 @@ const V34_BUDGET_STORAGE_KEY = "greenlit-v38-budget-lab";
 
 const V34_BUDGET_DEFAULTS = {
   feeStrength: 1,
-  lowBudgetDiscount: 0.68,
+  lowBudgetDiscount: 0.58,
   highBudgetPremium: 1.12,
   overageTolerance: 0.16,
   savingsReward: 0.22,
@@ -13251,9 +13788,9 @@ v32TalentTier = function v34TalentTier(p, slot) {
 };
 
 function v34ScaleFeeMultiplier(scale = S.project.scale) {
-  if (scale === "Microbudget") return V34_BUDGET.lowBudgetDiscount;
+  if (scale === "Microbudget") return clamp(V34_BUDGET.lowBudgetDiscount * 0.9, 0.42, 0.85);
   if (scale === "Independent")
-    return 0.82 + (V34_BUDGET.lowBudgetDiscount - 0.68) * 0.45;
+    return clamp(V34_BUDGET.lowBudgetDiscount * 1.08, 0.5, 0.92);
   if (scale === "Studio Event") return 1.04;
   if (scale === "Tentpole") return V34_BUDGET.highBudgetPremium;
   return 1;
@@ -13896,6 +14433,7 @@ v30RenderDraftMosaic = function v35RenderSourceMovies(pools, selectedIndex) {
         <span class="v36SourceBadges">
           <small>Current draft film</small>
           ${activeFilm.id === mostPopular ? "<em>Most popular</em>" : ""}
+          <em>${arcadeEsc(v30SourceArchetypeLabel(pools[activeIndex]))}</em>
           <em>${arcadeEsc(v31MovieIdentity(activeFilm))}</em>
         </span>
         <h2>${arcadeEsc(activeFilm.title)}</h2>
@@ -13925,7 +14463,7 @@ v30RenderDraftMosaic = function v35RenderSourceMovies(pools, selectedIndex) {
           <span class="v36SourceShade"></span>
           ${film.id === mostPopular ? '<span class="v36SourceRibbon">Most popular</span>' : ""}
           <span class="v36SourceReelCopy">
-            <small>${arcadeEsc(v31MovieIdentity(film))}</small>
+            <small>${arcadeEsc(v30SourceArchetypeLabel(entry))}</small>
             <b>${arcadeEsc(film.title)}</b>
             <span>${film.year || "—"} · ${arcadeEsc(film.genre || S.project.genre)} · <strong>★ ${safe(film.rating).toFixed(1)}</strong></span>
           </span>
@@ -13975,6 +14513,7 @@ const ACTIVE_HIRE_PAGE_V35 = async function v35HirePage() {
       const sourceIndex = Number(button.dataset.source);
       if (!Number.isInteger(sourceIndex) || !pools[sourceIndex]) return;
       S.sourceIndex[slot] = sourceIndex;
+      v30TrackDraftSelection(slot, sourceIndex);
       S.tierCache[slot] = {};
       grid.innerHTML = v30RenderDraftMosaic(pools, sourceIndex);
       render();
@@ -14133,11 +14672,7 @@ function v35CrewTier(p, kind) {
   const attrs = adjusted(p, v31StyleCrewSlot(kind));
   const score =
     attrs.craft * 0.52 + attrs.reliability * 0.25 + attrs.fit * 0.23;
-  if (score >= 82) return "S";
-  if (score >= 73) return "A";
-  if (score >= 64) return "B";
-  if (score >= 55) return "C";
-  return "D";
+  return v38TierFromScore(score);
 }
 
 function v36SeededShuffle(values, random) {
@@ -14566,6 +15101,11 @@ const ACTIVE_PRODUCTION_PAGE_V35 = function v35ProductionPage() {
         crew.composerPool,
         crew.cinematographerPool,
         crew.duoRoll,
+      );
+      v38RecordStyleRollTelemetry(
+        crew.composerPool.map(person).filter(Boolean),
+        crew.cinematographerPool.map(person).filter(Boolean),
+        crew.duoPackages,
       );
       crew.duoSelectedId = null;
       crew.composerId = null;
@@ -15596,14 +16136,72 @@ const ACTIVE_RESULTS_PAGE_V35 = function v35ResultsPage() {
 
 v35EnsureState();
 
-// Keep every creative reel to three visible choices.
+// Keep every creative reel to three visible choices while staying budget-scoped.
+function v38SelectBudgetScopedCrewChoices(pool, kind) {
+  const slot = kind === "directors" ? "Director 1" : "Writer 1";
+  const preferred = v38PreferredCrewTiers();
+  const caps = v38BudgetOptionCaps();
+  const maxFee = kind === "directors" ? caps.crewDirector : caps.crewWriter;
+  const buckets = {
+    S: [],
+    A: [],
+    B: [],
+    C: [],
+    D: [],
+  };
+  const seen = new Set();
+
+  pool.forEach((candidate) => {
+    const tier = v32TalentTier(candidate, slot);
+    if (buckets[tier]) buckets[tier].push(candidate);
+  });
+
+  const picked = [];
+  preferred.forEach((tier) => {
+    const candidate = (buckets[tier] || [])
+      .slice()
+      .sort((first, second) => {
+        const firstFee = v32PersonFee(first, slot);
+        const secondFee = v32PersonFee(second, slot);
+        const firstDistance = Math.abs(firstFee - maxFee);
+        const secondDistance = Math.abs(secondFee - maxFee);
+        return firstDistance - secondDistance;
+      })
+      .find((item) => !seen.has(item.id));
+    if (!candidate || picked.length >= 3) return;
+    seen.add(candidate.id);
+    picked.push(candidate);
+  });
+
+  if (picked.length < 3) {
+    const remaining = pool
+      .filter((candidate) => !seen.has(candidate.id))
+      .sort((a, b) => {
+        const aTier = v32TalentTier(a, slot);
+        const bTier = v32TalentTier(b, slot);
+        const aIndex = preferred.indexOf(aTier);
+        const bIndex = preferred.indexOf(bTier);
+        return (aIndex < 0 ? 99 : aIndex) - (bIndex < 0 ? 99 : bIndex);
+      });
+    remaining.forEach((candidate) => {
+      if (picked.length >= 3) return;
+      seen.add(candidate.id);
+      picked.push(candidate);
+    });
+  }
+
+  return picked.slice(0, 3);
+}
+
 const V35_BUILD_CREW_POOL_BASE = arcadeBuildCrewPool;
 arcadeBuildCrewPool = async function v35BuildCrewPool(kind) {
-  const pool = (await V35_BUILD_CREW_POOL_BASE(kind)).slice(0, 3);
+  const pool = await V35_BUILD_CREW_POOL_BASE(kind);
+  const scoped = v38SelectBudgetScopedCrewChoices(pool, kind);
+  const output = scoped.length ? scoped : pool.slice(0, 3);
   if (!pool.length) {
     throw new Error(`No ${kind} candidates were returned. Please try again.`);
   }
-  return pool;
+  return output;
 };
 
 // =============================================================================
@@ -15708,6 +16306,83 @@ function v38LiveBalanceResultsMarkup(summary) {
   `;
 }
 
+function v38ScaleParityResultsMarkup(simulation, telemetryAudit, regression) {
+  const rows = Object.entries(simulation.byScale || {})
+    .map(
+      ([scale, report]) => `
+        <div>
+          <span>${arcadeEsc(scale)}</span>
+          <b>${report.successRate.toFixed(1)}%</b>
+          <small>n=${report.sampleSize} · avg pressure ${report.averageBudgetPressure.toFixed(1)}%</small>
+        </div>
+      `,
+    )
+    .join("");
+  const archetypeRows = Object.entries(telemetryAudit.averageBudgetAffinity || {})
+    .map(
+      ([archetype, affinity]) =>
+        `<li>${arcadeEsc(V30_DRAFT_ARCHETYPE_LABELS[archetype] || archetype)}: ${safe(affinity).toFixed(1)}%</li>`,
+    )
+    .join("");
+  return `
+    <div class="v38LiveBalanceCards">
+      <div><span>Success-rate spread</span><b>${(simulation.successRateSpread * 100).toFixed(1)}%</b></div>
+      <div><span>Target spread</span><b>${(simulation.targetSpread * 100).toFixed(1)}%</b></div>
+      <div><span>Status</span><b>${simulation.pass ? "Pass" : "Needs tuning"}</b></div>
+      <div><span>Slate integrity</span><b>${telemetryAudit.slateIntegrityRate.toFixed(1)}%</b></div>
+    </div>
+    <div class="v38LiveBalanceRange"><span>Deterministic regression</span><b>${regression.pass ? "Pass" : "Fail"}</b><small>Worst spread ${(regression.worstSpread * 100).toFixed(1)}% across ${regression.runs.length} locked seeds.</small></div>
+    <div class="v38LiveBalanceOutcomes">${rows}</div>
+    <div class="v38LiveBalanceRange">
+      <span>Draft telemetry</span>
+      <b>${telemetryAudit.slotCount} slot slates analyzed</b>
+      <small>${telemetryAudit.completeCoverageCount}/${telemetryAudit.slotCount || 1} include all five archetypes.</small>
+    </div>
+    ${
+      archetypeRows
+        ? `<div class="v38LiveBalanceRange"><span>Average budget affinity by archetype</span><ul>${archetypeRows}</ul></div>`
+        : ""
+    }
+  `;
+}
+
+function v38BudgetScopeAuditMarkup(telemetryAudit, stressTest) {
+  const rows = Object.entries(telemetryAudit.byScale || {})
+    .map(([scale, report]) => {
+      const crew = report.crew || {};
+      const style = report.style || {};
+      return `
+        <div>
+          <span>${arcadeEsc(scale)}</span>
+          <b>${average([safe(crew.overBudgetRate), safe(style.overBudgetRate)]).toFixed(1)}% over budget</b>
+          <small>${average([safe(crew.goodChoiceRate), safe(style.goodChoiceRate)]).toFixed(1)}% good-choice rate</small>
+        </div>
+      `;
+    })
+    .join("");
+  const stressRows = Object.entries(stressTest.byScale || {})
+    .map(
+      ([scale, report]) =>
+        `<div><span>${arcadeEsc(scale)}</span><b>${safe(report.overBudgetRate).toFixed(1)}%</b><small>${report.pass ? "Within target" : "Above target"}</small></div>`,
+    )
+    .join("");
+  return `
+    <div class="v38LiveBalanceCards">
+      <div><span>Low-budget over-budget rate</span><b>${safe(telemetryAudit.lowBudgetOverBudgetRate).toFixed(1)}%</b></div>
+      <div><span>Low-budget good-choice rate</span><b>${safe(telemetryAudit.lowBudgetGoodChoiceRate).toFixed(1)}%</b></div>
+      <div><span>Crew rolls tracked</span><b>${telemetryAudit.crewRollCount}</b></div>
+      <div><span>Style rolls tracked</span><b>${telemetryAudit.styleRollCount}</b></div>
+    </div>
+    <div class="v38LiveBalanceOutcomes">${rows}</div>
+    <div class="v38LiveBalanceRange">
+      <span>Budget stress test target</span>
+      <b>${safe(stressTest.targetOverBudgetRate)}% max over-budget rate</b>
+      <small>Synthetic over-budget rates by scale:</small>
+    </div>
+    <div class="v38LiveBalanceOutcomes">${stressRows}</div>
+  `;
+}
+
 const V38_BALANCE_MODAL_BASE = balanceModal;
 balanceModal = function v38BalanceModal() {
   V38_BALANCE_MODAL_BASE();
@@ -15726,6 +16401,25 @@ balanceModal = function v38BalanceModal() {
       </div>
       <div id="v38LiveBalanceStatus" class="v38LiveBalanceStatus">${ready ? "Ready to test the current package." : "Complete casting, crew, marketing and all three production calls to unlock this audit."}</div>
       <div id="v38LiveBalanceResults"></div>
+    </section>
+    <section class="v34BudgetLabPanel v38LiveBalancePanel">
+      <div class="v34BudgetLabTitle"><span class="mini">V38.6 fairness simulator</span><h2>Run scale-parity audit</h2></div>
+      <p>Simulate recommendation fairness across all production scales and verify that low/high budget paths stay within the same success-rate difficulty band.</p>
+      <div class="v38LiveBalanceControls">
+        <label>Runs <input id="v38ScaleParityRuns" type="range" min="200" max="5000" step="200" value="2000"><b id="v38ScaleParityRunsValue">2000</b></label>
+        <button class="btn primary" id="v38RunScaleParity">Run parity audit</button>
+      </div>
+      <div id="v38ScaleParityStatus" class="v38LiveBalanceStatus">Ready to evaluate scale parity and draft telemetry.</div>
+      <div id="v38ScaleParityResults"></div>
+    </section>
+    <section class="v34BudgetLabPanel v38LiveBalancePanel">
+      <div class="v34BudgetLabTitle"><span class="mini">V38.6 budget-scope audit</span><h2>Audit over-budget risk and choice quality</h2></div>
+      <p>Checks how often rolls go over budget and whether low-budget runs get viable writer/director and creative package options.</p>
+      <div class="v38LiveBalanceControls">
+        <button class="btn primary" id="v38RunBudgetScopeAudit">Run budget-scope audit</button>
+      </div>
+      <div id="v38BudgetScopeStatus" class="v38LiveBalanceStatus">Ready to audit current telemetry and stress-test budget tiers.</div>
+      <div id="v38BudgetScopeResults"></div>
     </section>`,
   );
 
@@ -15755,6 +16449,88 @@ balanceModal = function v38BalanceModal() {
       if (status) status.textContent = error.message;
     } finally {
       if (document.body.contains(button)) button.disabled = false;
+    }
+  };
+
+  const parityRange = $("#v38ScaleParityRuns");
+  const parityValue = $("#v38ScaleParityRunsValue");
+  const parityButton = $("#v38RunScaleParity");
+  parityRange.oninput = () => {
+    parityValue.textContent = parityRange.value;
+  };
+  parityButton.onclick = () => {
+    const status = $("#v38ScaleParityStatus");
+    const results = $("#v38ScaleParityResults");
+    parityButton.disabled = true;
+    try {
+      const runCount = Number(parityRange.value);
+      const simulation = runScaleParitySimulation({
+        iterations: runCount,
+        scaleBudgets: Object.fromEntries(
+          Object.entries(SCALE).map(([scale, data]) => [scale, data.budget]),
+        ),
+        targetSpread: safe(BALANCE_TUNING.sourceDraft?.parityTargetSpread, 0.06),
+        seed: `${S.runSeed || "seed"}|parity`,
+      });
+      const regression = runDeterministicParityRegression({
+        iterations: 2500,
+        scaleBudgets: Object.fromEntries(
+          Object.entries(SCALE).map(([scale, data]) => [scale, data.budget]),
+        ),
+        targetSpread: safe(BALANCE_TUNING.sourceDraft?.parityTargetSpread, 0.06),
+      });
+      const telemetryAudit = auditDraftRecommendationTelemetry(
+        S.arcade?.recommendationTelemetry || {},
+      );
+      if (status) {
+        status.textContent = simulation.pass && regression.pass
+          ? "Scale parity and deterministic regressions are inside the target spread."
+          : "Parity drift detected; adjust archetype weighting and rerun.";
+      }
+      if (results) {
+        results.innerHTML = v38ScaleParityResultsMarkup(
+          simulation,
+          telemetryAudit,
+          regression,
+        );
+      }
+    } catch (error) {
+      if (status) status.textContent = error.message;
+    } finally {
+      if (document.body.contains(parityButton)) parityButton.disabled = false;
+    }
+  };
+
+  const budgetScopeButton = $("#v38RunBudgetScopeAudit");
+  budgetScopeButton.onclick = () => {
+    const status = $("#v38BudgetScopeStatus");
+    const results = $("#v38BudgetScopeResults");
+    budgetScopeButton.disabled = true;
+    try {
+      const telemetryAudit = auditBudgetScopeTelemetry(S.arcade?.budgetAudit || {});
+      const stressTest = runBudgetScopeStressTest({
+        iterations: 2500,
+        scaleBudgets: Object.fromEntries(
+          Object.entries(SCALE).map(([scale, data]) => [scale, data.budget]),
+        ),
+        targetOverBudgetRate: 45,
+        seed: `${S.runSeed || "seed"}|budget-scope`,
+      });
+      if (status) {
+        status.textContent =
+          telemetryAudit.crewRollCount || telemetryAudit.styleRollCount
+            ? "Budget-scope telemetry audit complete."
+            : "No crew/style telemetry captured yet. Spin crew reels and creative duos first.";
+      }
+      if (results) {
+        results.innerHTML = v38BudgetScopeAuditMarkup(telemetryAudit, stressTest);
+      }
+    } catch (error) {
+      if (status) status.textContent = error.message;
+    } finally {
+      if (document.body.contains(budgetScopeButton)) {
+        budgetScopeButton.disabled = false;
+      }
     }
   };
 };

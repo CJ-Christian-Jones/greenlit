@@ -13,7 +13,7 @@ This project deliberately runs without a bundler. Use this map to find the curre
 5. `js/v38/portrait-service.js` — bounded portrait/profile enrichment.
 6. `js/v38/decision-ledger.js` — seeded production dilemmas and effects.
 7. `js/core/screen-registry.js` — immutable screen registry creation/selection for boot safety.
-8. `js/app.js` — simulator, screens, interactions, analytics, and final boot.
+8. `js/app.js` — simulator, screens, interactions, analytics, and final boot (imports `js/sim/balance-simulator.js` and `js/sim/budget-scope-audit.js` for fairness and budget-scope diagnostics).
 
 The order is significant because `app.js` consumes the services exposed by the earlier scripts.
 
@@ -50,7 +50,7 @@ Historical version names in this file are not archives. The remaining ones are l
 | Marketing | `v32MarketingPage` | Campaign strategy, spend forecast, and confirmation |
 | Release | `v35ReleasePage` | 52-week theatrical story and original-film benchmark |
 | Results | `v35ResultsPage` | Scorecard, why analysis, awards, leaderboard, and career record |
-| Balance Lab | `v38BalanceModal` | Wraps `v34BudgetLabModal` with the live package audit |
+| Balance Lab | `v38BalanceModal` | Wraps `v34BudgetLabModal` with live package audit, scale-parity simulator, and budget-scope audit |
 
 `ACTIVE_*_PAGE` aliases feed `V38_SCREEN_REGISTRY`, and the final `render()` call at the bottom of `js/app.js` is the authoritative boot boundary.
 
