@@ -52,7 +52,7 @@ Historical version names in this file are not archives. The remaining ones are l
 | Results | `v35ResultsPage` | Scorecard, why analysis, awards, leaderboard, and career record |
 | Balance Lab | `v38BalanceModal` | Wraps `v34BudgetLabModal` with the live package audit |
 
-`V38_SCREEN_REGISTRY` and the final `render()` call at the bottom of `js/app.js` are the authoritative boot boundary.
+`ACTIVE_*_PAGE` aliases feed `V38_SCREEN_REGISTRY`, and the final `render()` call at the bottom of `js/app.js` is the authoritative boot boundary.
 
 ## `css/app.css` search anchors
 
