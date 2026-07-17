@@ -8075,22 +8075,6 @@ const LEGACY_PROJECT_PAGE_V23 = function projectPageV23() {
     };
 };
 
-const ARCADE_HIRE_PAGE_V22 = hirePage;
-const LEGACY_HIRE_PAGE_V23 = async function hirePageV23() {
-  await ARCADE_HIRE_PAGE_V22();
-  const slot = S.activeSlot || ARCADE_ACTOR_SLOTS[0];
-  if (!ARCADE_ACTOR_SLOTS.includes(slot)) return;
-  const heading = $(".main .arcadePageHead p.sub");
-  if (heading)
-    heading.textContent = `${S.arcade.fitMode} fit · ${S.arcade.creativeDirection}. Drag shortlisted actors into the three comparison slots.`;
-  $$("[data-person]").forEach((card) => {
-    const id = card.dataset.person;
-    const p = person(id);
-    const detail = card.querySelector(".arcadeMediumFit");
-    if (detail && p) detail.textContent = arcadeRoleFitLabel(p, slot);
-  });
-};
-
 const ARCADE_SIDEBAR_V22 = sidebar;
 sidebar = function sidebarV23() {
   const html = ARCADE_SIDEBAR_V22();
@@ -8102,18 +8086,6 @@ sidebar = function sidebarV23() {
     )
     .replaceAll(">Director<", `>${labels.director}<`)
     .replaceAll(">Writer<", `>${labels.writer}<`);
-};
-
-const ARCADE_PRODUCTION_V22 = LEGACY_PRODUCTION_PAGE_V22;
-const LEGACY_PRODUCTION_PAGE_V23 = function productionPageV23() {
-  ARCADE_PRODUCTION_V22();
-  const h1 = $(".main h1");
-  if (h1)
-    h1.textContent = arcadeIsShow() ? "Season package." : "Crew and style.";
-  const sub = $(".main p.sub");
-  if (sub && arcadeIsShow())
-    sub.textContent =
-      "Choose a showrunner-shaped creative package, writers’ room, episode director, music and visual language.";
 };
 
 // =============================================================================
@@ -9354,7 +9326,7 @@ function v25PosterPreview() {
 }
 
 // Style Studio replaces the older static music/camera choice section while preserving the crew reels.
-const V25_PRODUCTION_BASE = LEGACY_PRODUCTION_PAGE_V23;
+const V25_PRODUCTION_BASE = LEGACY_PRODUCTION_PAGE_V22;
 const ACTIVE_PRODUCTION_PAGE_V25 = function v25ProductionPage() {
   v25EnsureState();
   // Render existing crew page first, then replace its creative board.
