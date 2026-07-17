@@ -10352,26 +10352,6 @@ const ACTIVE_PROJECT_PAGE_V26 = function v26ProjectPage() {
   }
 };
 
-// Surface the non-standard release profile on the release screen.
-const V26_RELEASE_PAGE_BASE = releasePage;
-const LEGACY_RELEASE_PAGE_V26 = function v26ReleasePage() {
-  V26_RELEASE_PAGE_BASE();
-  const note = document.querySelector(".releaseDataNote");
-  if (note) {
-    const labels = {
-      standard: "Standard theatrical decline",
-      stable: "Stable weekly hold",
-      sleeper: "Sleeper growth",
-      phenomenon: "Word-of-mouth phenomenon",
-      rerelease: "Surprise rerelease comeback",
-    };
-    note.insertAdjacentHTML(
-      "beforebegin",
-      `<div class="v26ReleaseProfile"><span class="mini">Release behavior</span><b>${labels[S.arcade.releaseProfile] || labels.standard}</b><small>Arcade releases can hold, grow, collapse or return later instead of sharing one identical curve.</small></div>`,
-    );
-  }
-};
-
 const V26_SHELL_BASE = shell;
 shell = function v26Shell(main) {
   v26EnsureState();
@@ -11023,19 +11003,6 @@ const ACTIVE_RELEASE_PAGE_V27 = function v27ReleasePage() {
   };
 };
 
-const V27_RESULTS_BASE = LEGACY_RESULTS_PAGE_V23;
-const ACTIVE_RESULTS_PAGE_V27 = function v27ResultsPage() {
-  V27_RESULTS_BASE();
-  const legacy = S.arcade?.legacy;
-  if (!legacy) return;
-  const score = document.querySelector(".arcadeScorecard,.v23Scorecard,.main");
-  if (score && !document.querySelector(".v27LegacyCard"))
-    score.insertAdjacentHTML(
-      "beforeend",
-      `<section class="v27LegacyCard"><span>${legacy.icon}</span><div><small>LEGACY EPILOGUE</small><h2>${legacy.name}</h2><p>${legacy.text}</p></div></section>`,
-    );
-};
-
 const V27_PROJECT_BASE = ACTIVE_PROJECT_PAGE_V26;
 const ACTIVE_PROJECT_PAGE_V27 = function v27ProjectPage() {
   V27_PROJECT_BASE();
@@ -11351,22 +11318,6 @@ buildReleaseRace = function v28BuildReleaseRace(simulation) {
 
   try {
     return V28_BUILD_RELEASE_RACE_BASE(simulation);
-  } finally {
-    S.project.year = templateYear;
-  }
-};
-
-// Release-page dates should use release year.
-
-const V28_RELEASE_PAGE_BASE = ACTIVE_RELEASE_PAGE_V27;
-
-const ACTIVE_RELEASE_PAGE_V28 = function v28ReleasePage() {
-  const templateYear = S.project.year;
-
-  S.project.year = v28ReleaseYear();
-
-  try {
-    V28_RELEASE_PAGE_BASE();
   } finally {
     S.project.year = templateYear;
   }
