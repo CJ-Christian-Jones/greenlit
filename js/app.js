@@ -6233,23 +6233,48 @@ baseAttrs = function arcadeBaseAttrs(p, slot) {
 
 function arcadeAuditionMods(p, slot, fit) {
   const raw = auditionMods(p, slot, fit);
-  const fitLift = clamp((fit - 60) / 20, -2.8, 3.2);
-  const reliabilityLift = clamp((safe(p?.reliability, 55) - 55) / 28, -1.2, 1.8);
-  const craftLift = clamp((safe(p?.craft, 55) - 55) / 36, -1.1, 1.4);
-  const negativeGuard = fit >= 70 ? 0.85 : fit <= 52 ? 1.2 : 1;
-  return Object.fromEntries(
-    Object.entries(raw).map(([key, value]) => {
-      const keyLift =
-        key === "craft" || key === "chemistry"
-          ? craftLift * 0.55
-          : reliabilityLift * 0.45;
-      const shaped = value * negativeGuard + fitLift + keyLift;
-      return [
-        key,
-        Math.round(clamp(shaped, -8.5, 10.5) * 10) / 10,
-      ];
-    }),
+  const revealBase = clamp(
+    (fit - 63) / 15 + (safe(p?.reliability, 55) - 55) / 24,
+    -3.1,
+    3.4,
   );
+  const momentumTilt = clamp((safe(p?.momentum, 55) - 55) / 35, -1.1, 1.3);
+  const downsideWeight = fit <= 56 ? 1.2 : fit >= 75 ? 0.9 : 1;
+  let seed = hash(`${S.runSeed}|audition-v38|${slot}|${p?.id}`);
+  const rand = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const keyBias = {
+    craft: 1.05,
+    draw: 0.72,
+    reliability: 0.95,
+    momentum: 0.85,
+    chemistry: 1.1,
+  };
+
+  const shaped = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const volatility = (rand() - 0.5) * 4.6 + momentumTilt * 0.6;
+    const modifier =
+      (value * 0.62 + revealBase * (keyBias[key] || 0.9) + volatility) *
+      downsideWeight;
+    shaped[key] = Math.round(clamp(modifier, -10.5, 10.5) * 10) / 10;
+  }
+
+  const values = Object.values(shaped);
+  const hasPositive = values.some((value) => value > 0.2);
+  const hasNegative = values.some((value) => value < -0.2);
+  if (!hasNegative) {
+    const weakest = Object.entries(shaped).sort((a, b) => a[1] - b[1])[0]?.[0];
+    if (weakest) shaped[weakest] = Math.round(clamp(shaped[weakest] - 2.6, -10.5, 10.5) * 10) / 10;
+  }
+  if (!hasPositive) {
+    const strongest = Object.entries(shaped).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (strongest) shaped[strongest] = Math.round(clamp(shaped[strongest] + 2.4, -10.5, 10.5) * 10) / 10;
+  }
+
+  return shaped;
 }
 
 function arcadeTalentBadges(p, slot) {
@@ -12872,7 +12897,8 @@ function v32TalentTier(p, slot) {
 
 function v32PersonFee(p, slot) {
   if (!p) return 0;
-  const tier = v32TalentTier(p, slot);
+  const audition = typeof v24AuditionFor === "function" ? v24AuditionFor(slot, p.id) : null;
+  const tier = audition?.tierBeforeAudition || v32TalentTier(p, slot);
   const base = V32_TIER_FEES[tier] || V32_TIER_FEES.D;
   const roleMultiplier = slot.startsWith("Lead 1")
     ? 1.45
@@ -12954,7 +12980,18 @@ function v38ForecastConfidenceLabel(confidence) {
 }
 
 function v38FinancialForecastWidget() {
-  if (!S.reference || S.screen < 1 || S.screen > 4) return "";
+  if (S.screen < 1 || S.screen > 4) return "";
+  if (!S.reference) {
+    return `
+      <section class="v32BudgetWidget">
+        <div class="v32BudgetHeader">
+          <div><span>Forecast</span><b>Unavailable</b></div>
+          <strong>—</strong>
+        </div>
+        <small>Select a movie to unlock projected gross and break-even guidance.</small>
+      </section>
+    `;
+  }
   try {
     const simulation = simulate();
     const projection = v27Projection(simulation);
@@ -12972,7 +13009,15 @@ function v38FinancialForecastWidget() {
       </section>
     `;
   } catch {
-    return "";
+    return `
+      <section class="v32BudgetWidget">
+        <div class="v32BudgetHeader">
+          <div><span>Forecast</span><b>Unavailable</b></div>
+          <strong>—</strong>
+        </div>
+        <small>Financial outlook will appear after enough package inputs are set.</small>
+      </section>
+    `;
   }
 }
 
