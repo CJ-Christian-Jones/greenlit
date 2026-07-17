@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0b0910" />
+    <meta
+      name="description"
+      content="GREENLIT research-guided movie studio arcade game"
+    />
+    <title>GREENLIT Arcade V38</title>
+
+    <!-- PWA: installable app metadata. Safe to load even where unsupported. -->
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="GREENLIT" />
+
+    <!-- The project deliberately uses separate, editable CSS and JavaScript. -->
+    <link rel="stylesheet" href="css/app.css?v=38.5" />
+  </head>
+  <body>
+    <!-- The application renders into this single root element. -->
+    <div id="app"></div>
+
+    <!-- Load order: data foundation, V38 services, then the application shell. -->
+    <script src="js/v37/catalog.js?v=38.5"></script>
+    <script src="js/v37/data-service.js?v=38.5"></script>
+    <script src="js/v37/state-core.js?v=38.5"></script>
+    <script src="js/v38/state-core.js?v=38.5"></script>
+    <script src="js/v38/portrait-service.js?v=38.5"></script>
+    <script src="js/v38/decision-ledger.js?v=38.5"></script>
+    <script type="module" src="js/app.js?v=38.5"></script>
+
+    <!-- PWA: register the shell service worker. Fails silently over plain
+         http:// or in browsers without support; the game runs unchanged. -->
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker
+            .register("service-worker.js")
+            .catch(() => {
+              // Non-fatal: most likely served over http:// during local dev,
+              // or the browser doesn't support service workers.
+            });
+        });
+      }
+    </script>
+  </body>
+</html>
