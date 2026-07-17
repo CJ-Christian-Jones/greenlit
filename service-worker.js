@@ -71,8 +71,8 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
-        .then((response) => {
-          caches.open(SHELL_CACHE).then((cache) => cache.put("./index.html", response.clone()));
+        .then(async (response) => {
+          await caches.open(SHELL_CACHE).then((cache) => cache.put("./index.html", response.clone()));
           return response;
         })
         .catch(
@@ -90,8 +90,8 @@ self.addEventListener("fetch", (event) => {
       caches.match(request).then(
         (cached) =>
           cached ||
-          fetch(request).then((response) => {
-            caches.open(SHELL_CACHE).then((cache) => cache.put(request, response.clone()));
+          fetch(request).then(async (response) => {
+            await caches.open(SHELL_CACHE).then((cache) => cache.put(request, response.clone()));
             return response;
           }),
       ),

@@ -34,6 +34,12 @@
     <script src="js/v38/portrait-service.js?v=38.5"></script>
     <script src="js/v38/decision-ledger.js?v=38.5"></script>
     <script type="module" src="js/app.js?v=38.5"></script>
+    <script>
+      window.addEventListener("error", (event) => {
+        console.error("Boot error:", event.error);
+        document.body.innerHTML = '<div style="padding:20px;color:#f7f1ff;background:#09070d;text-align:center"><h1>Load Failed</h1><p>The app failed to load. Check the console for details.</p></div>';
+      });
+    </script>
 
     <!-- PWA: register the shell service worker. Fails silently over plain
          http:// or in browsers without support; the game runs unchanged. -->
