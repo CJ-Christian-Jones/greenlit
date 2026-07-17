@@ -15,6 +15,10 @@
  * Search for "CENTRAL BALANCE TUNING" for the core model, or see CODE_MAP.md
  * for the current runtime ownership map.
  */
+import {
+  createScreenRegistry,
+  selectScreenRenderer,
+} from "./core/screen-registry.js?v=38.5";
 
 // =============================================================================
 // DOM HELPERS AND STATIC GAME DATA
@@ -6434,9 +6438,7 @@ render = function arcadeRender() {
     }
   }
   save();
-  const screens = V38_SCREEN_REGISTRY;
-  if (!screens) throw new Error("V38_SCREEN_REGISTRY not initialized.");
-  return (screens[S.screen] || screens[0])();
+  return selectScreenRenderer(V38_SCREEN_REGISTRY, S.screen)();
 };
 
 projectPage = function arcadeProjectPage() {
@@ -13324,10 +13326,6 @@ function v33LoadBalanceSettings() {
 
 let V33_BALANCE = v33LoadBalanceSettings();
 
-function v33SaveBalanceSettings() {
-  localStorage.setItem(V33_BALANCE_STORAGE_KEY, JSON.stringify(V33_BALANCE));
-}
-
 function v33ApplyBalanceSettings() {
   Object.assign(V32_BALANCE, {
     packageBudgetShare: V33_BALANCE.packageBudgetShare,
@@ -14873,45 +14871,6 @@ function v35ApplyAttachedStyle(kind, p) {
   }
 }
 
-function v35StyleCrewChoices(ids, selectedId) {
-  const candidateIds =
-    selectedId && !ids.includes(selectedId) ? [selectedId, ...ids] : ids;
-  const people = candidateIds.map(person).filter(Boolean);
-  const selected = people.find((candidate) => candidate.id === selectedId);
-  const ordered = selected
-    ? [selected, ...people.filter((candidate) => candidate.id !== selected.id)]
-    : people;
-  return ordered.slice(0, 3);
-}
-
-function v35StyleCrewCard(p, kind, selectedId) {
-  const selected = p.id === selectedId;
-  const profile = v35StyleProfile(p, kind);
-  const tier = v35CrewTier(p, kind);
-  const credits = (p.eraKnownProjects || p.known || []).slice(0, 2);
-  const creditText = credits
-    .map((credit) => (typeof credit === "string" ? credit : credit.title))
-    .filter(Boolean)
-    .join(" · ");
-
-  return `
-    <button class="v35ArtistCard ${selected ? "selected" : ""}" data-style-crew-kind="${kind}" data-style-crew-id="${p.id}">
-      ${
-        p.photo
-          ? `<img src="${p.photo}" alt="${arcadeEsc(p.name)}">`
-          : '<span class="arcadeCrewFallback">GL</span>'
-      }
-      <span class="v35ArtistCopy">
-        <small>${kind === "composer" ? "Composer" : "Cinematographer"}</small>
-        <b>${arcadeEsc(p.name)}</b>
-        <em>${profile.icon} ${arcadeEsc(profile.name)}</em>
-        ${creditText ? `<span>${arcadeEsc(creditText)}</span>` : ""}
-      </span>
-      <strong class="tier ${tier}">${tier}</strong>
-    </button>
-  `;
-}
-
 function v38LedgerContext() {
   const packageBudget = v32PackageBudget();
   return {
@@ -16293,7 +16252,7 @@ const ACTIVE_MARKETING_PAGE = marketingPage;
 const ACTIVE_RELEASE_PAGE = releasePage;
 const ACTIVE_RESULTS_PAGE = resultsPage;
 
-V38_SCREEN_REGISTRY = Object.freeze([
+V38_SCREEN_REGISTRY = createScreenRegistry([
   ACTIVE_PROJECT_PAGE,
   ACTIVE_HIRE_PAGE,
   ACTIVE_PRODUCTION_PAGE,

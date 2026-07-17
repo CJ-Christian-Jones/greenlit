@@ -12,7 +12,8 @@ This project deliberately runs without a bundler. Use this map to find the curre
 4. `js/v38/state-core.js` — V38 migration and crew-readiness rules.
 5. `js/v38/portrait-service.js` — bounded portrait/profile enrichment.
 6. `js/v38/decision-ledger.js` — seeded production dilemmas and effects.
-7. `js/app.js` — simulator, screens, interactions, analytics, and final boot.
+7. `js/core/screen-registry.js` — immutable screen registry creation/selection for boot safety.
+8. `js/app.js` — simulator, screens, interactions, analytics, and final boot.
 
 The order is significant because `app.js` consumes the services exposed by the earlier scripts.
 

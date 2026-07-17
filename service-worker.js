@@ -19,6 +19,7 @@ const SHELL_ASSETS = [
   `./js/v38/portrait-service.js?v=${SHELL_VERSION}`,
   `./js/v38/decision-ledger.js?v=${SHELL_VERSION}`,
   `./js/app.js?v=${SHELL_VERSION}`,
+  `./js/core/screen-registry.js?v=${SHELL_VERSION}`,
   "./manifest.webmanifest",
   "./offline.html",
 ];
