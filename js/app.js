@@ -11921,7 +11921,7 @@ function v30RenderDraftMosaic(pools, selectedIndex) {
 
 // Final consolidated casting page. This replaces the repeated V21–V25 page
 // wrappers while preserving auditions, saved picks, cameos, and era cards.
-hirePage = async function v30HirePage() {
+const ACTIVE_HIRE_PAGE_V30 = async function v30HirePage() {
   v30EnsureState();
   const renderId = ACTIVE_RENDER_ID;
 
@@ -12757,8 +12757,8 @@ productionPage = function v31ProductionPage() {
 };
 
 // Wrap the consolidated casting screen to add report controls and animated source switching.
-const V31_HIRE_PAGE_BASE = hirePage;
-hirePage = async function v31HirePage() {
+const V31_HIRE_PAGE_BASE = ACTIVE_HIRE_PAGE_V30;
+const ACTIVE_HIRE_PAGE_V31 = async function v31HirePage() {
   const renderId = ACTIVE_RENDER_ID;
   await V31_HIRE_PAGE_BASE();
   if (renderId !== ACTIVE_RENDER_ID || S.screen !== 1) return;
@@ -13272,8 +13272,8 @@ v28BindReleaseYearControl = function v32BindReleaseYearControl() {
 };
 
 // Remove source-film animation and use a plain outline selection.
-const V32_HIRE_PAGE_BASE = hirePage;
-hirePage = async function v32HirePage() {
+const V32_HIRE_PAGE_BASE = ACTIVE_HIRE_PAGE_V31;
+const ACTIVE_HIRE_PAGE_V32 = async function v32HirePage() {
   const renderId = ACTIVE_RENDER_ID;
   await V32_HIRE_PAGE_BASE();
   if (renderId !== ACTIVE_RENDER_ID || S.screen !== 1) return;
@@ -14423,8 +14423,8 @@ v30RenderDraftMosaic = function v35RenderSourceMovies(pools, selectedIndex) {
   return `${hero}<div class="v36SourceReel" aria-label="Other source movies">${reel}</div>`;
 };
 
-const V35_HIRE_PAGE_BASE = hirePage;
-hirePage = async function v35HirePage() {
+const V35_HIRE_PAGE_BASE = ACTIVE_HIRE_PAGE_V32;
+const ACTIVE_HIRE_PAGE_V35 = async function v35HirePage() {
   v35EnsureState();
   const renderId = ACTIVE_RENDER_ID;
   const slot = ARCADE_ACTOR_SLOTS.includes(S.activeSlot)
@@ -16246,7 +16246,7 @@ balanceModal = function v38BalanceModal() {
 };
 
 const ACTIVE_PROJECT_PAGE = projectPage;
-const ACTIVE_HIRE_PAGE = hirePage;
+const ACTIVE_HIRE_PAGE = ACTIVE_HIRE_PAGE_V35;
 const ACTIVE_PRODUCTION_PAGE = productionPage;
 const ACTIVE_MARKETING_PAGE = marketingPage;
 const ACTIVE_RELEASE_PAGE = releasePage;
