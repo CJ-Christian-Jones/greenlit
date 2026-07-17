@@ -1,5 +1,5 @@
 /**
- * GREENLIT — Arcade Edition V38.4
+ * GREENLIT — Arcade Edition V38.5
  *
  * This file is intentionally kept build-free. Historical version labels mark
  * compatibility layers that still participate in the current V38 flow; dead
@@ -6429,7 +6429,7 @@ shell = function arcadeShell(main) {
 render = function arcadeRender() {
   ACTIVE_RENDER_ID += 1;
   ensureArcadeState();
-  S.arcade.version = "38.4";
+  S.arcade.version = "38.5";
   if (APP_STATE) {
     const guarded = APP_STATE.guardScreen(S, S.screen);
     if (guarded.redirected) {
