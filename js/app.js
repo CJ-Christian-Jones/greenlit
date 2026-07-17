@@ -6434,14 +6434,8 @@ render = function arcadeRender() {
     }
   }
   save();
-  const screens = V38_SCREEN_REGISTRY || [
-    projectPage,
-    hirePage,
-    productionPage,
-    marketingPage,
-    releasePage,
-    resultsPage,
-  ];
+  const screens = V38_SCREEN_REGISTRY;
+  if (!screens) throw new Error("V38_SCREEN_REGISTRY not initialized.");
   return (screens[S.screen] || screens[0])();
 };
 
@@ -16292,13 +16286,26 @@ balanceModal = function v38BalanceModal() {
   };
 };
 
+const ACTIVE_PROJECT_PAGE = projectPage;
+const ACTIVE_HIRE_PAGE = hirePage;
+const ACTIVE_PRODUCTION_PAGE = productionPage;
+const ACTIVE_MARKETING_PAGE = marketingPage;
+const ACTIVE_RELEASE_PAGE = releasePage;
+const ACTIVE_RESULTS_PAGE = resultsPage;
+
 V38_SCREEN_REGISTRY = Object.freeze([
-  projectPage,
-  hirePage,
-  productionPage,
-  marketingPage,
-  releasePage,
-  resultsPage,
+  ACTIVE_PROJECT_PAGE,
+  ACTIVE_HIRE_PAGE,
+  ACTIVE_PRODUCTION_PAGE,
+  ACTIVE_MARKETING_PAGE,
+  ACTIVE_RELEASE_PAGE,
+  ACTIVE_RESULTS_PAGE,
 ]);
+
+/*
+ * AUTHORITATIVE V38 BOOT BOUNDARY
+ * Final runtime entrypoints are captured above and boot starts below.
+ * Do not add further renderer/entrypoint reassignment beneath this block.
+ */
 ensureArcadeState();
 render();
