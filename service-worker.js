@@ -5,7 +5,7 @@
 // in js/v37/data-service.js, and pretending live search works offline would
 // be misleading.
 
-const SHELL_VERSION = "38.6";
+const SHELL_VERSION = "38.9";
 const SHELL_CACHE = `greenlit-shell-v${SHELL_VERSION}`;
 
 const SHELL_ASSETS = [

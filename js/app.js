@@ -6071,6 +6071,9 @@ function arcadeFreshState() {
     visualChoice: null,
     marketingLabel: null,
     customMarketingName: "",
+    financeAdvisor: {
+      decision: "pending",
+    },
     finalScores: null,
     runBadges: [],
     recommendationTelemetry: {},
@@ -6088,6 +6091,10 @@ function ensureArcadeState() {
   S.arcade = {
     ...arcadeFreshState(),
     ...(S.arcade || {}),
+    financeAdvisor: {
+      ...arcadeFreshState().financeAdvisor,
+      ...(S.arcade?.financeAdvisor || {}),
+    },
     crew: {
       ...arcadeFreshState().crew,
       ...(S.arcade?.crew || {}),
@@ -6233,48 +6240,23 @@ baseAttrs = function arcadeBaseAttrs(p, slot) {
 
 function arcadeAuditionMods(p, slot, fit) {
   const raw = auditionMods(p, slot, fit);
-  const revealBase = clamp(
-    (fit - 63) / 15 + (safe(p?.reliability, 55) - 55) / 24,
-    -3.1,
-    3.4,
+  const fitLift = clamp((fit - 60) / 20, -2.8, 3.2);
+  const reliabilityLift = clamp((safe(p?.reliability, 55) - 55) / 28, -1.2, 1.8);
+  const craftLift = clamp((safe(p?.craft, 55) - 55) / 36, -1.1, 1.4);
+  const negativeGuard = fit >= 70 ? 0.85 : fit <= 52 ? 1.2 : 1;
+  return Object.fromEntries(
+    Object.entries(raw).map(([key, value]) => {
+      const keyLift =
+        key === "craft" || key === "chemistry"
+          ? craftLift * 0.55
+          : reliabilityLift * 0.45;
+      const shaped = value * negativeGuard + fitLift + keyLift;
+      return [
+        key,
+        Math.round(clamp(shaped, -8.5, 10.5) * 10) / 10,
+      ];
+    }),
   );
-  const momentumTilt = clamp((safe(p?.momentum, 55) - 55) / 35, -1.1, 1.3);
-  const downsideWeight = fit <= 56 ? 1.2 : fit >= 75 ? 0.9 : 1;
-  let seed = hash(`${S.runSeed}|audition-v38|${slot}|${p?.id}`);
-  const rand = () => {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
-  const keyBias = {
-    craft: 1.05,
-    draw: 0.72,
-    reliability: 0.95,
-    momentum: 0.85,
-    chemistry: 1.1,
-  };
-
-  const shaped = {};
-  for (const [key, value] of Object.entries(raw)) {
-    const volatility = (rand() - 0.5) * 4.6 + momentumTilt * 0.6;
-    const modifier =
-      (value * 0.62 + revealBase * (keyBias[key] || 0.9) + volatility) *
-      downsideWeight;
-    shaped[key] = Math.round(clamp(modifier, -10.5, 10.5) * 10) / 10;
-  }
-
-  const values = Object.values(shaped);
-  const hasPositive = values.some((value) => value > 0.2);
-  const hasNegative = values.some((value) => value < -0.2);
-  if (!hasNegative) {
-    const weakest = Object.entries(shaped).sort((a, b) => a[1] - b[1])[0]?.[0];
-    if (weakest) shaped[weakest] = Math.round(clamp(shaped[weakest] - 2.6, -10.5, 10.5) * 10) / 10;
-  }
-  if (!hasPositive) {
-    const strongest = Object.entries(shaped).sort((a, b) => b[1] - a[1])[0]?.[0];
-    if (strongest) shaped[strongest] = Math.round(clamp(shaped[strongest] + 2.4, -10.5, 10.5) * 10) / 10;
-  }
-
-  return shaped;
 }
 
 function arcadeTalentBadges(p, slot) {
@@ -6449,6 +6431,7 @@ shell = function arcadeShell(main) {
       </div>
     </div>
     <div class="progress arcadeProgress">${labels.map((label, index) => `<div class="step ${index === S.screen ? "active" : readiness[index]?.complete ? "done" : ""}" data-testid="progress-step-${index}">${index + 1}. ${label}</div>`).join("")}</div>
+    ${v38LiveForecastBar()}
     <div class="layout">${sidebar()}<main class="main">${routeGuardMessage ? `<div class="callout warn v37RouteGuard" data-testid="route-guard">${arcadeEsc(routeGuardMessage)}</div>` : ""}${main}</main></div>
   </div>`;
   if (S.arcade) delete S.arcade.routeGuardMessage;
@@ -6456,6 +6439,21 @@ shell = function arcadeShell(main) {
   $("#data").onclick = dataModal;
   $("#playerAnalytics").onclick = playerAnalyticsModal;
   $("#balance").onclick = balanceModal;
+  if ($("#v38AcceptFinanceAdvice")) {
+    $("#v38AcceptFinanceAdvice").onclick = () => {
+      ensureArcadeState();
+      S.arcade.financeAdvisor.decision = "accepted";
+      S.simulation = null;
+      render();
+    };
+  }
+  if ($("#v38IgnoreFinanceAdvice")) {
+    $("#v38IgnoreFinanceAdvice").onclick = () => {
+      ensureArcadeState();
+      S.arcade.financeAdvisor.decision = "ignored";
+      render();
+    };
+  }
   $("#newRun").onclick = () => {
     if (!confirm("Start a new arcade run? Career history stays saved.")) return;
     S = structuredClone(DEFAULT);
@@ -9391,6 +9389,24 @@ function actorHiddenStat(label, hint = "Revealed after audition") {
   `;
 }
 
+function v38AuditionDeltaMarkup(audition) {
+  const mods = Object.entries(audition?.mods || {});
+  if (!mods.length) return "";
+  const labels = {
+    craft: "Craft",
+    draw: "Draw",
+    reliability: "Reliability",
+    momentum: "Momentum",
+    chemistry: "Chemistry",
+  };
+  return `<div class="v38AuditionDeltaRow">${mods
+    .map(([key, value]) => {
+      const amount = safe(value);
+      return `<div><span>${arcadeEsc(labels[key] || key)}</span><b class="${amount >= 0 ? "positive" : "negative"}">${amount >= 0 ? "+" : ""}${amount.toFixed(1)}</b></div>`;
+    })
+    .join("")}</div>`;
+}
+
 arcadeCandidateCard = function v25CandidateCard(p, slot) {
   const attrs = adjusted(p, slot, true);
   const before = adjusted(p, slot, false);
@@ -9407,7 +9423,7 @@ arcadeCandidateCard = function v25CandidateCard(p, slot) {
     tierBefore = audition?.tierBeforeAudition || baseTalentTier(p, slot);
   } catch {}
   const recommendation = v25RecommendationBadge(p, slot);
-  const scores = fitRevealed ? v25RecommendationScores(p, slot) : null;
+  const scores = v25RecommendationScores(p, slot);
   const traits = p.workingStyleTraits || [];
   const sourceTitle =
     p.sourceMovieTitle ||
@@ -9436,37 +9452,31 @@ arcadeCandidateCard = function v25CandidateCard(p, slot) {
     }
 
     ${
-      fitRevealed
-        ? actorHeadlineStat(
-            "Commercial",
-            scores["Commercial Pick"],
-            ACTOR_CARD_AVERAGES.commercial,
-            ACTOR_CARD_COLOR_SPREAD.commercial,
-          )
-        : actorHiddenStat("Commercial", "Hidden until audition")
+      actorHeadlineStat(
+        "Commercial",
+        scores["Commercial Pick"],
+        ACTOR_CARD_AVERAGES.commercial,
+        ACTOR_CARD_COLOR_SPREAD.commercial,
+      )
     }
 
     ${
-      fitRevealed
-        ? actorHeadlineStat(
-            "Creative",
-            scores["Creative Pick"],
-            ACTOR_CARD_AVERAGES.creative,
-            ACTOR_CARD_COLOR_SPREAD.creative,
-          )
-        : actorHiddenStat("Creative", "Hidden until audition")
+      actorHeadlineStat(
+        "Creative",
+        scores["Creative Pick"],
+        ACTOR_CARD_AVERAGES.creative,
+        ACTOR_CARD_COLOR_SPREAD.creative,
+      )
     }
 
     ${
-      fitRevealed
-        ? actorHeadlineStat(
-            "Confidence",
-            scores.confidence,
-            ACTOR_CARD_AVERAGES.confidence,
-            ACTOR_CARD_COLOR_SPREAD.confidence,
-            "%",
-          )
-        : actorHiddenStat("Confidence", "Hidden until audition")
+      actorHeadlineStat(
+        "Confidence",
+        scores.confidence,
+        ACTOR_CARD_AVERAGES.confidence,
+        ACTOR_CARD_COLOR_SPREAD.confidence,
+        "%",
+      )
     }
   </div>
 
@@ -9485,11 +9495,11 @@ arcadeCandidateCard = function v25CandidateCard(p, slot) {
     ${S.arcade.fitMode === "Realistic" && fitRevealed ? `<div class="v24FitImpact"><div><span>Age fit</span><b class="${effects.age >= 0 ? "positive" : "negative"}">${arcadeEsc(effects.ageLabel)}</b><small>${effects.actorAge ?? "?"} vs target ${effects.targetAge ?? "?"}</small></div><div><span>Gender fit</span><b class="${gender.match === false ? "negative" : "positive"}">${arcadeEsc(gender.status)}</b><small>${gender.match === false ? "Fixed fit penalty; binary rule." : "No gender penalty."}</small></div></div>` : ""}
     <div class="arcadeQuickStats">${arcadeStatCell("Craft", before.craft, visibleAfter.craft)}${arcadeStatCell("Draw", before.draw, visibleAfter.draw)}${arcadeStatCell("Reliability", before.reliability, visibleAfter.reliability)}${arcadeStatCell("Momentum", before.momentum, visibleAfter.momentum)}${arcadeStatCell("Chemistry", before.chemistry, visibleAfter.chemistry)}</div>
     ${traits.length ? `<div class="v25Traits"><span>Working style</span>${traits.map((t) => `<b title="${arcadeEsc(t.effect)}">${arcadeEsc(t.name)}</b>`).join("")}</div>` : ""}
-    ${audition ? `<div class="arcadeAuditionRead"><b>Audition locked in</b><span>${tierBefore !== tier ? `${tierBefore} → ${tier} tier` : "Revealed performance remains for this run."}</span></div>` : `<div class="arcadeAuditionRead"><b>Scouting only</b><span>Fit and true upside/downside stay hidden until audition.</span></div>`}
+    ${audition ? `<div class="arcadeAuditionRead"><b>Audition locked in</b><span>${tierBefore !== tier ? `${tierBefore} → ${tier} tier` : "Character fit is revealed and the stat shifts below stay for this run."}</span>${v38AuditionDeltaMarkup(audition)}</div>` : `<div class="arcadeAuditionRead"><b>Scouting only</b><span>Only character fit is hidden before the audition. All other stats are already visible.</span></div>`}
     ${v25CareerTimeline(p)}
     </div>
   </details>
-    <div class="arcadeActorActions"><button class="btn" data-short="${p.id}">${shortlisted ? "★ Pinned" : "☆ Pin"}</button><button class="btn" data-aud="${p.id}" ${audition || arcadeAuditionCount() >= 3 ? "disabled" : ""}>${audition ? "Auditioned" : "Reveal fit"}</button><button class="btn primary" data-hire="${p.id}">${selected ? "Selected" : "Hire"}</button></div>
+    <div class="arcadeActorActions"><button class="btn" data-short="${p.id}">${shortlisted ? "★ Pinned" : "☆ Pin"}</button><button class="btn" data-aud="${p.id}" ${audition || arcadeAuditionCount() >= 3 ? "disabled" : ""}>${audition ? "Auditioned" : "Audition"}</button><button class="btn primary" data-hire="${p.id}">${selected ? "Selected" : "Hire"}</button></div>
     <button class="cameoBtn ${S.cameos[slot]?.personId === p.id ? "active" : ""}" data-cameo-person="${p.id}" data-cameo-slot="${slot}">${S.cameos[slot]?.personId === p.id ? `Cameo: ${arcadeEsc(S.cameos[slot].character)}` : "Use iconic-role cameo"}</button></div></article>`;
 };
 
@@ -11257,12 +11267,227 @@ function v38BudgetOptionCaps(scale = S.project.scale) {
   };
 }
 
+function v38ScaleTalentCostReduction(scale = S.project.scale) {
+  if (scale === "Microbudget") return 0.75;
+  if (scale === "Independent") return 0.82;
+  if (scale === "Mid-Budget") return 0.9;
+  if (scale === "Studio Event") return 0.96;
+  return 1;
+}
+
+function v38PackageAffordabilitySnapshot() {
+  const packageBudget = v32PackageBudget();
+  return {
+    ...packageBudget,
+    remaining: safe(packageBudget.remaining),
+    overBudget: safe(packageBudget.remaining) < 0,
+  };
+}
+
+function v38AffordabilityNoise(group, id) {
+  return (
+    (hash(`${S.runSeed || "run"}|v38-affordability|${group}|${id || "unknown"}`) >>>
+      0) % 1000
+  ) / 1000;
+}
+
+function v38LiveAffordableFeeCap(kind, scale = S.project.scale) {
+  const caps = v38BudgetOptionCaps(scale);
+  const snapshot = v38PackageAffordabilitySnapshot();
+  const remaining = Math.max(0, safe(snapshot.remaining));
+  if (snapshot.overBudget) return 0;
+  if (kind === "directors") return Math.max(0, Math.min(caps.crewDirector, remaining * 0.68));
+  if (kind === "writers") return Math.max(0, Math.min(caps.crewWriter, remaining * 0.62));
+  if (kind === "composer") return Math.max(0, Math.min(caps.creativeDuo * 0.5, remaining * 0.52));
+  if (kind === "cinematographer")
+    return Math.max(0, Math.min(caps.creativeDuo * 0.52, remaining * 0.58));
+  if (kind === "creativeDuo") return Math.max(0, Math.min(caps.creativeDuo, remaining * 0.92));
+  return remaining;
+}
+
+function v38AffordableOptionWindow(options, config) {
+  const {
+    kind,
+    limit = 3,
+    getId = (item) => item?.id,
+    getFee,
+    getTier = () => "D",
+    preferredTiers = v38PreferredCrewTiers(),
+  } = config;
+  const snapshot = v38PackageAffordabilitySnapshot();
+  const feeCap = v38LiveAffordableFeeCap(kind);
+  const unique = [...new Map((options || []).map((item) => [getId(item), item])).values()];
+  const sorted = unique
+    .slice()
+    .sort((first, second) => {
+      const firstFee = safe(getFee(first));
+      const secondFee = safe(getFee(second));
+      const firstTier = preferredTiers.indexOf(getTier(first));
+      const secondTier = preferredTiers.indexOf(getTier(second));
+      const firstTierScore = firstTier < 0 ? 99 : firstTier;
+      const secondTierScore = secondTier < 0 ? 99 : secondTier;
+      const firstNoise =
+        v38AffordabilityNoise(kind, getId(first)) * Math.max(0.01, firstFee) * 0.06;
+      const secondNoise =
+        v38AffordabilityNoise(kind, getId(second)) * Math.max(0.01, secondFee) * 0.06;
+      return (
+        firstFee +
+        firstNoise +
+        firstTierScore * 0.18 -
+        (secondFee + secondNoise + secondTierScore * 0.18)
+      );
+    });
+
+  if (snapshot.overBudget) return sorted.slice(0, limit);
+
+  const affordable = sorted.filter((item) => safe(getFee(item)) <= feeCap);
+  return affordable.length ? affordable.slice(0, limit) : sorted.slice(0, Math.min(limit, 2));
+}
+
+function v38AffordableMarketingStrategies() {
+  const plan = v33StudioBudgetPlan();
+  const entries = Object.entries(V32_MARKETING_STRATEGIES);
+  const reserveRatio = clamp(
+    safe(plan.reserveRemaining) / Math.max(1, safe(plan.reserveTarget)),
+    0,
+    1,
+  );
+  const overBudget =
+    safe(plan.commitmentPercent) > 100 || safe(plan.reserveRemaining) <= 0;
+  const sorted = entries.slice().sort((first, second) => {
+    const spendDifference =
+      safe(first[1]?.spendMultiplier, 1) - safe(second[1]?.spendMultiplier, 1);
+    if (Math.abs(spendDifference) >= 0.001) return spendDifference;
+    return v38MarketingBudgetFit(second[1]) - v38MarketingBudgetFit(first[1]);
+  });
+  if (overBudget) return sorted.slice(0, 3);
+  const spendCeiling = clamp(0.84 + reserveRatio * 0.44, 0.84, 1.28);
+  const affordable = sorted.filter(
+    ([, strategy]) => safe(strategy?.spendMultiplier, 1) <= spendCeiling,
+  );
+  return affordable.length ? affordable : sorted.slice(0, 3);
+}
+
+function v38FinanceDepartmentAdvice() {
+  ensureArcadeState();
+  if (!S.reference) {
+    return {
+      state: "neutral",
+      confidence: 0,
+      actionable: false,
+      headline: "Finance department is waiting on a reference movie.",
+      forecastLow: 0,
+      forecastHigh: 0,
+      recoveryLow: 0,
+      recoveryHigh: 0,
+      note: "",
+    };
+  }
+  const simulation = S.simulation || simulate();
+  const projection = v27Projection(simulation);
+  const why = buildWhyAnalysis(simulation, null);
+  const plan = v33StudioBudgetPlan();
+  const reserveRatio = clamp(
+    safe(plan.reserveRemaining) / Math.max(1, safe(plan.reserveTarget)),
+    0,
+    1,
+  );
+  const pressure = Math.max(0, safe(plan.commitmentPercent) - 100);
+  const financeAccepted = S.arcade.financeAdvisor?.decision === "accepted";
+  const confidence = Math.round(
+    clamp(
+      safe(projection.confidence, 62) +
+        reserveRatio * 12 -
+        pressure * 0.7 +
+        (financeAccepted ? 8 : 0),
+      38,
+      93,
+    ),
+  );
+  const recoveryUncertainty = clamp(
+    0.1 + (100 - confidence) / 170 + pressure / 220,
+    0.08,
+    0.34,
+  );
+  const recoveryLow = Math.max(
+    0,
+    safe(why.breakEvenGross) * (1 - recoveryUncertainty * 0.45),
+  );
+  const recoveryHigh = safe(why.breakEvenGross) * (1 + recoveryUncertainty);
+  const forecastLow = safe(projection.grossLow);
+  const forecastHigh = safe(projection.grossHigh);
+  const forecastMid = average([forecastLow, forecastHigh]);
+  const recoveryMid = average([recoveryLow, recoveryHigh]);
+  const gap = forecastMid - recoveryMid;
+  const overBudget =
+    safe(plan.commitmentPercent) > 100 || safe(plan.reserveRemaining) <= 0;
+  const riskyMarketing =
+    safe(
+      V32_MARKETING_STRATEGIES[S.arcade.marketingStrategy]?.spendMultiplier,
+      1,
+    ) > 1.04 && reserveRatio < 0.5;
+
+  if (financeAccepted) {
+    return {
+      state: "accepted",
+      confidence,
+      actionable: false,
+      headline: "Finance safeguards are active.",
+      forecastLow,
+      forecastHigh,
+      recoveryLow,
+      recoveryHigh,
+      note: "The film is being steered toward a safer financial outcome with slightly less creative swing.",
+    };
+  }
+  if (!overBudget && gap >= 18 && reserveRatio >= 0.45) {
+    return {
+      state: "good",
+      confidence,
+      actionable: false,
+      headline: "Finance department has no notes.",
+      forecastLow,
+      forecastHigh,
+      recoveryLow,
+      recoveryHigh,
+      note: "",
+    };
+  }
+
+  let note =
+    "Finance recommends a safer plan before release. Accepting trims upside a bit, but lowers cost exposure.";
+  if (overBudget) {
+    note =
+      "You are spending past the studio comfort line. Finance recommends cheaper crew, style, and campaign choices immediately.";
+  } else if (riskyMarketing) {
+    note =
+      "The campaign is aggressive for the current reserve. Finance recommends a leaner release push.";
+  } else if (gap < 0) {
+    note =
+      "The current forecast is tracking below the recovery range. Finance recommends tightening spend and choosing safer packages.";
+  }
+
+  return {
+    state: gap >= 0 ? "warn" : "negative",
+    confidence,
+    actionable: true,
+    headline:
+      gap >= 0
+        ? `${moneyM(gap)} of forecast cushion`
+        : `${moneyM(Math.abs(gap))} of forecast risk`,
+    forecastLow,
+    forecastHigh,
+    recoveryLow,
+    recoveryHigh,
+    note,
+  };
+}
+
 function v38RecordCrewRollTelemetry(kind, people) {
   ensureArcadeState();
   S.arcade.budgetAudit = S.arcade.budgetAudit || { crewRolls: [], styleRolls: [] };
-  const caps = v38BudgetOptionCaps();
   const slot = kind === "directors" ? "Director 1" : "Writer 1";
-  const cap = kind === "directors" ? caps.crewDirector : caps.crewWriter;
+  const cap = v38LiveAffordableFeeCap(kind);
   const options = (people || []).map((candidate) => ({
     id: candidate.id,
     tier: v32TalentTier(candidate, slot),
@@ -11281,7 +11506,6 @@ function v38RecordCrewRollTelemetry(kind, people) {
 function v38RecordStyleRollTelemetry(composers, cinematographers, duoPackages) {
   ensureArcadeState();
   S.arcade.budgetAudit = S.arcade.budgetAudit || { crewRolls: [], styleRolls: [] };
-  const caps = v38BudgetOptionCaps();
   const composerById = new Map((composers || []).map((candidate) => [candidate.id, candidate]));
   const cameraById = new Map(
     (cinematographers || []).map((candidate) => [candidate.id, candidate]),
@@ -11299,7 +11523,7 @@ function v38RecordStyleRollTelemetry(composers, cinematographers, duoPackages) {
   });
   S.arcade.budgetAudit.styleRolls.push({
     scale: S.project.scale,
-    maxAffordableFee: caps.creativeDuo,
+    maxAffordableFee: v38LiveAffordableFeeCap("creativeDuo"),
     packageTarget: v38EstimatedPackageTarget(),
     options,
     at: Date.now(),
@@ -12435,54 +12659,13 @@ function v36StyleCrewKindForCredit(credit) {
 }
 
 function v38SelectBudgetScopedStyleCrewPool(candidates, kind) {
-  const preferred = v38PreferredCrewTiers();
-  const caps = v38BudgetOptionCaps();
   const slot = v31StyleCrewSlot(kind);
-  const maxFee =
-    kind === "composer" ? caps.creativeDuo * 0.5 : caps.creativeDuo * 0.52;
-  const unique = [
-    ...new Map((candidates || []).map((candidate) => [candidate.id, candidate])).values(),
-  ];
-  const tierBuckets = {
-    S: [],
-    A: [],
-    B: [],
-    C: [],
-    D: [],
-  };
-
-  unique.forEach((candidate) => {
-    const tier = v35CrewTier(candidate, kind);
-    if (tierBuckets[tier]) tierBuckets[tier].push(candidate);
+  return v38AffordableOptionWindow(candidates, {
+    kind,
+    limit: 3,
+    getFee: (candidate) => v32PersonFee(candidate, slot),
+    getTier: (candidate) => v35CrewTier(candidate, kind),
   });
-
-  const selected = [];
-  const seen = new Set();
-  preferred.forEach((tier) => {
-    const candidate = (tierBuckets[tier] || [])
-      .slice()
-      .sort((first, second) => {
-        const firstFee = v32PersonFee(first, slot);
-        const secondFee = v32PersonFee(second, slot);
-        const firstDistance = Math.abs(firstFee - maxFee);
-        const secondDistance = Math.abs(secondFee - maxFee);
-        return firstDistance - secondDistance;
-      })
-      .find((item) => !seen.has(item.id));
-    if (!candidate || selected.length >= 3) return;
-    seen.add(candidate.id);
-    selected.push(candidate);
-  });
-
-  if (selected.length < 3) {
-    unique.forEach((candidate) => {
-      if (selected.length >= 3 || seen.has(candidate.id)) return;
-      seen.add(candidate.id);
-      selected.push(candidate);
-    });
-  }
-
-  return selected.slice(0, 3);
 }
 
 async function v36AllSettledBatched(
@@ -12600,8 +12783,8 @@ async function v31EnsureStyleCrewPools(force = false) {
         cinematographers,
         crew.duoPackages,
       );
-      if (crew.duoPackages.length < 3) {
-        throw new Error("Not enough real artists were returned for three duos.");
+      if (!crew.duoPackages.length) {
+        throw new Error("No affordable creative-duo packages were returned.");
       }
       crew.loaded = true;
     } catch (error) {
@@ -12913,7 +13096,11 @@ function v32PersonFee(p, slot) {
             : 0.7;
   const marketMultiplier = clamp(0.75 + safe(p.draw, 50) / 120, 0.8, 1.55);
   return (
-    base * roleMultiplier * marketMultiplier * V32_BALANCE.packageCostStrength
+    base *
+    roleMultiplier *
+    marketMultiplier *
+    V32_BALANCE.packageCostStrength *
+    v38ScaleTalentCostReduction()
   );
 }
 
@@ -13016,6 +13203,61 @@ function v38FinancialForecastWidget() {
           <strong>—</strong>
         </div>
         <small>Financial outlook will appear after enough package inputs are set.</small>
+      </section>
+    `;
+  }
+}
+
+function v38LiveForecastBar() {
+  if (S.screen > 5) return "";
+  try {
+    const finance = v38FinanceDepartmentAdvice();
+    const progress =
+      safe(finance.recoveryHigh) > 0
+        ? clamp(
+            (average([finance.forecastLow, finance.forecastHigh]) /
+              safe(finance.recoveryHigh)) *
+              100,
+            0,
+            145,
+          )
+        : 100;
+    return `
+      <section class="v38LiveForecastBar ${finance.state}">
+        <div class="v38LiveForecastHead">
+          <div>
+            <span class="mini">Finance Department</span>
+            <b>${arcadeEsc(finance.headline)}</b>
+          </div>
+          <strong>${finance.confidence ? `${finance.confidence}% confidence` : "Awaiting inputs"}</strong>
+        </div>
+        <div class="v38LiveForecastTrack"><span style="width:${progress}%"></span></div>
+        <div class="v38LiveForecastGrid">
+          <div><span>Projected gross range</span><b>${finance.forecastLow || finance.forecastHigh ? `${moneyM(finance.forecastLow)}–${moneyM(finance.forecastHigh)}` : "Unavailable"}</b></div>
+          <div><span>Recovery range</span><b>${finance.recoveryLow || finance.recoveryHigh ? `${moneyM(finance.recoveryLow)}–${moneyM(finance.recoveryHigh)}` : "Unavailable"}</b></div>
+          <div><span>Package pressure</span><b>${Math.round(v32PackageBudget().percent)}%</b></div>
+          <div><span>Current campaign</span><b>${arcadeEsc(S.arcade.marketingStrategy || "Not picked")}</b></div>
+        </div>
+        ${
+          finance.note
+            ? `<div class="v38LiveForecastComment">${arcadeEsc(finance.note)}</div>`
+            : ""
+        }
+        ${
+          finance.actionable
+            ? `<div class="v38LiveForecastActions"><button class="btn primary" id="v38AcceptFinanceAdvice">Accept finance suggestions</button><button class="btn" id="v38IgnoreFinanceAdvice">Ignore</button></div>`
+            : finance.state === "accepted"
+              ? `<div class="v38LiveForecastActions"><span class="v38FinanceAccepted">Finance safeguards are currently shaping the run.</span></div>`
+              : ""
+        }
+      </section>
+    `;
+  } catch {
+    return `
+      <section class="v38LiveForecastBar neutral">
+        <div class="v38LiveForecastHead">
+          <div><span class="mini">Finance Department</span><b>Forecast will update once the project has enough choices locked in.</b></div>
+        </div>
       </section>
     `;
   }
@@ -13131,7 +13373,8 @@ function v38MarketingScaleSpendFactor(scale = S.project.scale) {
 function v38MarketingBudgetFit(strategy) {
   const target = v38MarketingScaleSpendFactor();
   const distance = Math.abs(safe(strategy?.spendMultiplier, 1) - target);
-  return clamp(100 - distance * 180, 8, 100);
+  const cheaperBias = (1.22 - safe(strategy?.spendMultiplier, 1)) * 26;
+  return clamp(100 - distance * 180 + cheaperBias, 8, 100);
 }
 
 function v38MarketingFitMultiplier(score) {
@@ -13173,7 +13416,7 @@ function v32FitGrade(score) {
 const ACTIVE_MARKETING_PAGE_V32 = function v32MarketingPage() {
   v32EnsureState();
   const selected = S.arcade.marketingStrategy;
-  const orderedStrategies = Object.entries(V32_MARKETING_STRATEGIES).sort(
+  const orderedStrategies = v38AffordableMarketingStrategies().sort(
     ([firstName, firstStrategy], [secondName, secondStrategy]) => {
       const firstSelected = firstName === selected ? 1 : 0;
       const secondSelected = secondName === selected ? 1 : 0;
@@ -13317,10 +13560,7 @@ simulate = function v32Simulate() {
 const V32_SIDEBAR_BASE = sidebar;
 sidebar = function v32Sidebar() {
   const html = V32_SIDEBAR_BASE();
-  return html.replace(
-    "</aside>",
-    `${v32BudgetWidget()}${v38FinancialForecastWidget()}</aside>`,
-  );
+  return html.replace("</aside>", `${v32BudgetWidget()}</aside>`);
 };
 
 // -----------------------------------------------------------------------------
@@ -13635,51 +13875,56 @@ v32BudgetWidget = function v33BudgetWidget() {
       : plan.talentSpent > plan.talentTarget
         ? "warn"
         : "good";
+  const overUnder = plan.committed - plan.studioPlan;
+  const statusLine =
+    overUnder > 0
+      ? `${moneyM(overUnder)} over plan`
+      : `${moneyM(Math.abs(overUnder))} under plan`;
 
   return `
     <section class="v33StudioBudget ${packageState}">
       <div class="v33BudgetTop">
         <div>
-          <span>Studio budget plan</span>
-          <b>${moneyM(plan.committed)} committed</b>
+          <span>Budget snapshot</span>
+          <b>${statusLine}</b>
         </div>
-        <strong>${Math.round(plan.commitmentPercent)}%</strong>
+        <strong>${Math.round(plan.commitmentPercent)}% of plan</strong>
       </div>
       <div class="v33BudgetOverviewTrack"><span style="width:${clamp(plan.commitmentPercent, 0, 100)}%"></span></div>
       <div class="v33BudgetLines">
         ${v33BudgetBar(
-          "Talent",
+          "Cast & creatives",
           plan.talentSpent,
           plan.talentTarget,
-          `${moneyM(plan.talentTarget)} target based on the original production budget`,
+          `${moneyM(plan.talentTarget)} was the target for your cast and key hires`,
           "talent",
         )}
         ${v33BudgetBar(
-          "Production",
+          "Making the movie",
           plan.productionForecast,
           plan.originalProduction,
-          "Sets, crew, locations, VFX and post-production forecast",
+          "Sets, crew, locations, VFX and post-production",
           "production",
         )}
         ${v33BudgetBar(
-          "Marketing",
+          "Release campaign",
           plan.marketingForecast,
           plan.studioPlan,
-          `${S.arcade.marketingStrategy || "Campaign not selected"} estimate`,
+          `${S.arcade.marketingStrategy || "Campaign not selected"} marketing estimate`,
           "marketing",
         )}
         ${v33BudgetBar(
-          "Reserve",
+          "Safety cushion",
           plan.reserveRemaining,
           plan.reserveTarget,
           plan.reserveRemaining < plan.reserveTarget
-            ? `${moneyM(plan.reserveTarget - plan.reserveRemaining)} absorbed by talent overage${plan.packagePenalty ? ` · ${moneyM(plan.packagePenalty)} severe overage penalty` : ""}`
-            : "Contingency available for overruns and release surprises",
+            ? `${moneyM(plan.reserveTarget - plan.reserveRemaining)} was eaten by overages${plan.packagePenalty ? ` · ${moneyM(plan.packagePenalty)} extra penalty` : ""}`
+            : "Held back for overruns and release surprises",
           "reserve",
         )}
       </div>
       <div class="v33BudgetFooter">
-        <span>Total studio plan</span>
+        <span>Expected full spend</span>
         <b>${moneyM(plan.studioPlan)}</b>
       </div>
     </section>
@@ -14839,6 +15084,12 @@ function v36EnsureCreativeDuoPackages() {
       crew.duoRoll,
     );
   }
+  crew.duoPackages = v38AffordableOptionWindow(crew.duoPackages, {
+    kind: "creativeDuo",
+    limit: 3,
+    getFee: (pkg) => v36CreativeDuoFee(pkg),
+    getTier: () => "B",
+  });
   if (!crew.duoSelectedId && crew.composerId && crew.cinematographerId) {
     crew.duoSelectedId =
       crew.duoPackages.find(
@@ -15093,7 +15344,7 @@ const ACTIVE_PRODUCTION_PAGE_V35 = function v35ProductionPage() {
     </header>
 
     <div class="v36DuoToolbar">
-      <span>Three complete packages · one composer + one cinematographer</span>
+      <span>${packages.length || 0} budget-fit package${packages.length === 1 ? "" : "s"} · one composer + one cinematographer</span>
       <button class="btn" id="v36RerollDuos" ${crew.duoRerollUsed || packages.length < 3 ? "disabled" : ""}>
         ${crew.duoRerollUsed ? "Reroll used" : "Reroll all once"}
       </button>
@@ -15147,6 +15398,12 @@ const ACTIVE_PRODUCTION_PAGE_V35 = function v35ProductionPage() {
         crew.cinematographerPool,
         crew.duoRoll,
       );
+      crew.duoPackages = v38AffordableOptionWindow(crew.duoPackages, {
+        kind: "creativeDuo",
+        limit: 3,
+        getFee: (pkg) => v36CreativeDuoFee(pkg),
+        getTier: () => "B",
+      });
       v38RecordStyleRollTelemetry(
         crew.composerPool.map(person).filter(Boolean),
         crew.cinematographerPool.map(person).filter(Boolean),
@@ -15983,6 +16240,21 @@ simulate = function v35Simulate() {
   const simulation = V35_SIMULATE_BASE();
   const creative = arcadeCreativeEffects();
   v38ApplyDecisionEffects(simulation, creative);
+  if (S.arcade?.financeAdvisor?.decision === "accepted") {
+    simulation.marketing = Math.max(0, safe(simulation.marketing) * 0.9);
+    simulation.overhead = Math.max(0, safe(simulation.overhead) * 0.95);
+    simulation.overrun = Math.max(0, safe(simulation.overrun) * 0.72);
+    simulation.world *= 0.975;
+    simulation.domestic *= 0.975;
+    simulation.critic = clamp(safe(simulation.critic) - 1.4, 0, 100);
+    simulation.audience = clamp(safe(simulation.audience) - 1.1, 0, 100);
+    simulation.financeDepartment = {
+      active: true,
+      costTightening: true,
+      creativeTradeoff: true,
+    };
+    v28RecalculateEconomics(simulation);
+  }
   const awardVars = {
     ...(simulation.vars || {}),
     awards:
@@ -16083,12 +16355,48 @@ const ACTIVE_RESULTS_PAGE_V35 = function v35ResultsPage() {
   if (S.endTab === "why") {
     const contributions = v35ContributionRows();
     const why = buildWhyAnalysis(simulation, rank);
+    const breakEvenHeadline =
+      why.breakEvenGap >= 0
+        ? `${moneyM(why.breakEvenGross)} was enough to break even`
+        : `${moneyM(why.breakEvenGross)} was the break-even target`;
+    const breakEvenPlainEnglish =
+      why.breakEvenGap >= 0
+        ? `Your movie sold ${moneyM(simulation.world)} worldwide, which finished ${moneyM(why.breakEvenGap)} above the point where the studio recovered its costs.`
+        : `Your movie sold ${moneyM(simulation.world)} worldwide, which was about ${moneyM(Math.abs(why.breakEvenGap))} short of the point where the studio recovered its costs.`;
+    const resultLabel = simulation.profit >= 0 ? "Final profit" : "Final loss";
     body = `
       <section class="v35WhyMoney">
-        <div><span>Total studio revenue</span><b>${moneyM(why.totalStudioRevenue)}</b></div>
-        <div><span>Total cost</span><b>${moneyM(simulation.totalCost)}</b></div>
-        <div><span>Break-even gross</span><b>${moneyM(why.breakEvenGross)}</b></div>
-        <div><span>Profit</span><b class="${simulation.profit >= 0 ? "positive" : "negative"}">${moneyM(simulation.profit)}</b></div>
+        <div><span>Worldwide ticket sales</span><b>${moneyM(simulation.world)}</b></div>
+        <div><span>Money back to studio</span><b>${moneyM(why.totalStudioRevenue)}</b></div>
+        <div><span>Total spent</span><b>${moneyM(simulation.totalCost)}</b></div>
+        <div><span>${resultLabel}</span><b class="${simulation.profit >= 0 ? "positive" : "negative"}">${moneyM(Math.abs(simulation.profit))}</b></div>
+      </section>
+      <section class="whyHero ${simulation.profit >= 0 ? "profit" : "loss"}">
+        <div>
+          <div class="mini">Break-even made simple</div>
+          <h2>${breakEvenHeadline}</h2>
+          <p>
+            ${breakEvenPlainEnglish}
+            The studio did not keep the full box office total, so break-even had
+            to be much higher than the movie's direct spend.
+          </p>
+        </div>
+
+        <div class="whyProfitNumber ${why.breakEvenGap >= 0 ? "positive" : "negative"}">
+          ${why.breakEvenGap >= 0 ? "+" : "−"}${moneyM(Math.abs(why.breakEvenGap))}
+        </div>
+      </section>
+      <section class="whyPanel" style="margin-bottom:18px">
+        <h3>Think of it in three steps</h3>
+        <div class="breakEvenNumbers">
+          <div><span>1. You spent</span><b>${moneyM(simulation.totalCost)}</b></div>
+          <div><span>2. You needed</span><b>${moneyM(why.breakEvenGross)}</b></div>
+          <div><span>3. You sold</span><b>${moneyM(simulation.world)}</b></div>
+        </div>
+        <p class="breakEvenMessage">
+          Break-even is the worldwide gross needed for the studio to earn back its
+          costs after theaters take their cut and ancillary revenue is added.
+        </p>
       </section>
       <div class="v35ContributionHead"><span class="mini">People behind the result</span><h2>Cast and crew impact</h2><p>These are GREENLIT's project-specific contribution estimates, including actual cameo outcomes.</p></div>
       <section class="v35ContributionGrid">
@@ -16158,7 +16466,7 @@ const ACTIVE_RESULTS_PAGE_V35 = function v35ResultsPage() {
     <div class="tabs">
       ${[
         ["results", "Scorecard"],
-        ["why", "Why"],
+        ["why", "Break-even"],
         ["awards", "Awards & Share"],
       ]
         .map(
@@ -16184,58 +16492,12 @@ v35EnsureState();
 // Keep every creative reel to three visible choices while staying budget-scoped.
 function v38SelectBudgetScopedCrewChoices(pool, kind) {
   const slot = kind === "directors" ? "Director 1" : "Writer 1";
-  const preferred = v38PreferredCrewTiers();
-  const caps = v38BudgetOptionCaps();
-  const maxFee = kind === "directors" ? caps.crewDirector : caps.crewWriter;
-  const buckets = {
-    S: [],
-    A: [],
-    B: [],
-    C: [],
-    D: [],
-  };
-  const seen = new Set();
-
-  pool.forEach((candidate) => {
-    const tier = v32TalentTier(candidate, slot);
-    if (buckets[tier]) buckets[tier].push(candidate);
+  return v38AffordableOptionWindow(pool, {
+    kind,
+    limit: 3,
+    getFee: (candidate) => v32PersonFee(candidate, slot),
+    getTier: (candidate) => v32TalentTier(candidate, slot),
   });
-
-  const picked = [];
-  preferred.forEach((tier) => {
-    const candidate = (buckets[tier] || [])
-      .slice()
-      .sort((first, second) => {
-        const firstFee = v32PersonFee(first, slot);
-        const secondFee = v32PersonFee(second, slot);
-        const firstDistance = Math.abs(firstFee - maxFee);
-        const secondDistance = Math.abs(secondFee - maxFee);
-        return firstDistance - secondDistance;
-      })
-      .find((item) => !seen.has(item.id));
-    if (!candidate || picked.length >= 3) return;
-    seen.add(candidate.id);
-    picked.push(candidate);
-  });
-
-  if (picked.length < 3) {
-    const remaining = pool
-      .filter((candidate) => !seen.has(candidate.id))
-      .sort((a, b) => {
-        const aTier = v32TalentTier(a, slot);
-        const bTier = v32TalentTier(b, slot);
-        const aIndex = preferred.indexOf(aTier);
-        const bIndex = preferred.indexOf(bTier);
-        return (aIndex < 0 ? 99 : aIndex) - (bIndex < 0 ? 99 : bIndex);
-      });
-    remaining.forEach((candidate) => {
-      if (picked.length >= 3) return;
-      seen.add(candidate.id);
-      picked.push(candidate);
-    });
-  }
-
-  return picked.slice(0, 3);
 }
 
 const V35_BUILD_CREW_POOL_BASE = arcadeBuildCrewPool;

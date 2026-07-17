@@ -127,6 +127,118 @@ button {
   margin-bottom: 14px;
 }
 
+.v38LiveForecastBar {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #17131f, #100d15);
+  box-shadow: var(--shadow);
+}
+
+.v38LiveForecastBar.positive {
+  border-color: #315a43;
+}
+
+.v38LiveForecastBar.warn {
+  border-color: #7f6540;
+}
+
+.v38LiveForecastBar.accepted {
+  border-color: #3f5f76;
+}
+
+.v38LiveForecastBar.negative {
+  border-color: #6d3944;
+}
+
+.v38LiveForecastHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.v38LiveForecastHead b,
+.v38LiveForecastHead strong {
+  display: block;
+}
+
+.v38LiveForecastHead b {
+  margin-top: 4px;
+  font-size: 19px;
+}
+
+.v38LiveForecastHead strong {
+  color: var(--gold);
+  font-size: 12px;
+}
+
+.v38LiveForecastTrack {
+  height: 12px;
+  margin: 10px 0 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #2c2435;
+}
+
+.v38LiveForecastTrack span {
+  display: block;
+  height: 100%;
+  max-width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--purple), var(--gold));
+}
+
+.v38LiveForecastGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.v38LiveForecastGrid > div {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0e0c12;
+}
+
+.v38LiveForecastGrid span {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.55px;
+  text-transform: uppercase;
+}
+
+.v38LiveForecastGrid b {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+}
+
+.v38LiveForecastComment {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.v38LiveForecastActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.v38FinanceAccepted {
+  color: #b8d9ff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .step {
   padding: 9px;
   background: #141119;
@@ -2072,6 +2184,10 @@ select {
 }
 
 @media (max-width: 1000px) {
+  .v38LiveForecastGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .boxOfficeBuild,
   .counterfactualGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2083,9 +2199,20 @@ select {
 }
 
 @media (max-width: 760px) {
+  .v38LiveForecastHead,
   .whyHero {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .v38LiveForecastGrid,
+  .v38AuditionDeltaRow {
+    grid-template-columns: 1fr;
+  }
+
+  .v38LiveForecastActions {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .whyEconomicsGrid,
@@ -2952,6 +3079,36 @@ select {
 .arcadeAuditionRead span {
   color: #b7e7ca;
   font-size: 9px;
+}
+
+.v38AuditionDeltaRow {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.v38AuditionDeltaRow > div {
+  padding: 7px;
+  border: 1px solid #315a43;
+  border-radius: 8px;
+  background: #0f1b15;
+}
+
+.v38AuditionDeltaRow span,
+.v38AuditionDeltaRow b {
+  display: block;
+}
+
+.v38AuditionDeltaRow span {
+  color: #b7e7ca;
+  font-size: 8px;
+  text-transform: uppercase;
+}
+
+.v38AuditionDeltaRow b {
+  margin-top: 3px;
+  font-size: 14px;
 }
 
 .arcadeActorActions {
