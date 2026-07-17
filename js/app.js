@@ -6855,7 +6855,7 @@ function arcadeComparisonBoard(slot) {
     },
   ).join("")}</div></section>`;
 }
-hirePage = async function arcadeHirePage() {
+const LEGACY_HIRE_PAGE_V22 = async function arcadeHirePage() {
   ensureArcadeState();
   const slot = ARCADE_ACTOR_SLOTS.includes(S.activeSlot)
     ? S.activeSlot
@@ -8224,7 +8224,7 @@ projectPage = function projectPageV23() {
 };
 
 const ARCADE_HIRE_PAGE_V22 = hirePage;
-hirePage = async function hirePageV23() {
+const LEGACY_HIRE_PAGE_V23 = async function hirePageV23() {
   await ARCADE_HIRE_PAGE_V22();
   const slot = S.activeSlot || ARCADE_ACTOR_SLOTS[0];
   if (!ARCADE_ACTOR_SLOTS.includes(slot)) return;
@@ -8574,7 +8574,7 @@ function v24SavedPicks(slot) {
     .join("")}</div>`;
 }
 
-hirePage = async function v24HirePage() {
+const LEGACY_HIRE_PAGE_V24 = async function v24HirePage() {
   v24EnsureState();
   const slot = ARCADE_ACTOR_SLOTS.includes(S.activeSlot)
     ? S.activeSlot
@@ -9829,7 +9829,7 @@ v24SavedPicks = function v25SavedPicks(slot) {
 
 // Wrap hire page interactions to enrich visible actors and support cross-film pin jumps.
 const V25_HIRE_PAGE_BASE = hirePage;
-hirePage = async function v25HirePage() {
+const LEGACY_HIRE_PAGE_V25 = async function v25HirePage() {
   v25EnsureState();
   const slot = ARCADE_ACTOR_SLOTS.includes(S.activeSlot)
     ? S.activeSlot
