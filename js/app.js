@@ -6441,7 +6441,7 @@ render = function arcadeRender() {
   return selectScreenRenderer(V38_SCREEN_REGISTRY, S.screen)();
 };
 
-projectPage = function arcadeProjectPage() {
+const LEGACY_PROJECT_PAGE_V22 = function arcadeProjectPage() {
   ensureArcadeState();
   shell(`<div class="arcadePageHead">
       <div><div class="mini">Step 1</div><h1>Pick the movie.</h1><p class="sub">Search directly, browse with filters, or hit random. Everything else is built around this one film.</p></div>
@@ -7191,7 +7191,7 @@ function arcadeCrewSearchModal() {
   };
 }
 
-productionPage = function arcadeProductionPage() {
+const LEGACY_PRODUCTION_PAGE_V22 = function arcadeProductionPage() {
   ensureArcadeState();
   const crew = S.arcade.crew;
   const directorPeople = crew.directorsPool.map(person).filter(Boolean);
@@ -7384,7 +7384,7 @@ function arcadeSliderMarketingBase(v) {
   if (v.fandom > v.awareness) return "Fan Convention";
   return "Mass Awareness";
 }
-marketingPage = function arcadeMarketingPage() {
+const LEGACY_MARKETING_PAGE_V22 = function arcadeMarketingPage() {
   ensureArcadeState();
   S.arcade.marketingSliders = {
     awareness: 60,
@@ -7703,7 +7703,7 @@ simulate = function arcadeSimulate() {
   return simulation;
 };
 
-resultsPage = function arcadeResultsPage() {
+const LEGACY_RESULTS_PAGE_V22 = function arcadeResultsPage() {
   recordCompletedCareerRun();
   const simulation = S.simulation;
   if (!simulation) return shell("<h1>No result yet.</h1>");
@@ -8100,7 +8100,7 @@ simulate = function simulateV23() {
   return simulation;
 };
 
-projectPage = function projectPageV23() {
+const LEGACY_PROJECT_PAGE_V23 = function projectPageV23() {
   ensureArcadeState();
   const kind = S.arcade.projectKind;
   const maxYear = new Date().getFullYear();
@@ -8252,8 +8252,8 @@ sidebar = function sidebarV23() {
     .replaceAll(">Writer<", `>${labels.writer}<`);
 };
 
-const ARCADE_PRODUCTION_V22 = productionPage;
-productionPage = function productionPageV23() {
+const ARCADE_PRODUCTION_V22 = LEGACY_PRODUCTION_PAGE_V22;
+const LEGACY_PRODUCTION_PAGE_V23 = function productionPageV23() {
   ARCADE_PRODUCTION_V22();
   const h1 = $(".main h1");
   if (h1)
@@ -8265,7 +8265,7 @@ productionPage = function productionPageV23() {
 };
 
 const ARCADE_RESULTS_V22 = resultsPage;
-resultsPage = function resultsPageV23() {
+const LEGACY_RESULTS_PAGE_V23 = function resultsPageV23() {
   ARCADE_RESULTS_V22();
   const sim = S.simulation;
   if (!sim) return;
@@ -8711,7 +8711,7 @@ const LEGACY_HIRE_PAGE_V24 = async function v24HirePage() {
 };
 
 // Movie-only setup: TV and streaming are intentionally absent from every search path.
-projectPage = function v24ProjectPage() {
+const ACTIVE_PROJECT_PAGE_V24 = function v24ProjectPage() {
   v24EnsureState();
   const maxYear = new Date().getFullYear();
   shell(`<div class="arcadePageHead"><div><div class="mini">Step 1</div><h1>Build a movie.</h1><p class="sub">Choose a reference film, creative direction, and fit rules.</p></div><div class="arcadeStepPill">Movies only</div></div>
@@ -8920,7 +8920,7 @@ function v24MarketingRecommendations() {
   return recommendations.slice(0, 3);
 }
 
-marketingPage = function v24MarketingPage() {
+const LEGACY_MARKETING_PAGE_V24 = function v24MarketingPage() {
   v24EnsureState();
   const sliders = v24NormalizeMarketing(S.arcade.marketingSliders);
   S.arcade.marketingSliders = sliders;
@@ -9590,8 +9590,8 @@ function v25PosterPreview() {
 }
 
 // Style Studio replaces the older static music/camera choice section while preserving the crew reels.
-const V25_PRODUCTION_BASE = productionPage;
-productionPage = function v25ProductionPage() {
+const V25_PRODUCTION_BASE = LEGACY_PRODUCTION_PAGE_V23;
+const ACTIVE_PRODUCTION_PAGE_V25 = function v25ProductionPage() {
   v25EnsureState();
   // Render existing crew page first, then replace its creative board.
   V25_PRODUCTION_BASE();
@@ -10327,8 +10327,8 @@ function v26CustomMovieModal() {
   };
 }
 
-const V26_PROJECT_PAGE_BASE = projectPage;
-projectPage = function v26ProjectPage() {
+const V26_PROJECT_PAGE_BASE = ACTIVE_PROJECT_PAGE_V24;
+const ACTIVE_PROJECT_PAGE_V26 = function v26ProjectPage() {
   v26EnsureState();
   V26_PROJECT_PAGE_BASE();
   const searchPanel = document.querySelector(".arcadeSearchPanel");
@@ -10354,7 +10354,7 @@ projectPage = function v26ProjectPage() {
 
 // Surface the non-standard release profile on the release screen.
 const V26_RELEASE_PAGE_BASE = releasePage;
-releasePage = function v26ReleasePage() {
+const LEGACY_RELEASE_PAGE_V26 = function v26ReleasePage() {
   V26_RELEASE_PAGE_BASE();
   const note = document.querySelector(".releaseDataNote");
   if (note) {
@@ -10998,7 +10998,7 @@ function v27RenderRunWeek(run, week, sim) {
   );
 }
 
-releasePage = function v27ReleasePage() {
+const ACTIVE_RELEASE_PAGE_V27 = function v27ReleasePage() {
   v27EnsureState();
   const sim = S.simulation || simulate();
   S.simulation = sim;
@@ -11023,8 +11023,8 @@ releasePage = function v27ReleasePage() {
   };
 };
 
-const V27_RESULTS_BASE = resultsPage;
-resultsPage = function v27ResultsPage() {
+const V27_RESULTS_BASE = LEGACY_RESULTS_PAGE_V23;
+const ACTIVE_RESULTS_PAGE_V27 = function v27ResultsPage() {
   V27_RESULTS_BASE();
   const legacy = S.arcade?.legacy;
   if (!legacy) return;
@@ -11036,8 +11036,8 @@ resultsPage = function v27ResultsPage() {
     );
 };
 
-const V27_PROJECT_BASE = projectPage;
-projectPage = function v27ProjectPage() {
+const V27_PROJECT_BASE = ACTIVE_PROJECT_PAGE_V26;
+const ACTIVE_PROJECT_PAGE_V27 = function v27ProjectPage() {
   V27_PROJECT_BASE();
   const picked = document.querySelector(".arcadePickedMovie");
   if (picked && !document.querySelector(".v27ReleaseWindow")) {
@@ -11358,9 +11358,9 @@ buildReleaseRace = function v28BuildReleaseRace(simulation) {
 
 // Release-page dates should use release year.
 
-const V28_RELEASE_PAGE_BASE = releasePage;
+const V28_RELEASE_PAGE_BASE = ACTIVE_RELEASE_PAGE_V27;
 
-releasePage = function v28ReleasePage() {
+const ACTIVE_RELEASE_PAGE_V28 = function v28ReleasePage() {
   const templateYear = S.project.year;
 
   S.project.year = v28ReleaseYear();
@@ -11488,9 +11488,9 @@ function v28BindReleaseYearControl() {
 // PATCH PROJECT PAGE
 // -----------------------------------------------------------------------------
 
-const V28_PROJECT_PAGE_BASE = projectPage;
+const V28_PROJECT_PAGE_BASE = ACTIVE_PROJECT_PAGE_V27;
 
-projectPage = function v28ProjectPage() {
+const ACTIVE_PROJECT_PAGE_V28 = function v28ProjectPage() {
   V28_PROJECT_PAGE_BASE();
 
   const releaseCard = document.querySelector(".v26ReleaseYear");
@@ -12673,8 +12673,8 @@ arcadeCreativeEffects = function v31CreativeEffects() {
   return effects;
 };
 
-const V31_PRODUCTION_BASE = productionPage;
-productionPage = function v31ProductionPage() {
+const V31_PRODUCTION_BASE = ACTIVE_PRODUCTION_PAGE_V25;
+const ACTIVE_PRODUCTION_PAGE_V31 = function v31ProductionPage() {
   v31EnsureState();
   V31_PRODUCTION_BASE();
   v31EnsureStyleCrewPools();
@@ -13116,7 +13116,7 @@ function v32FitGrade(score) {
   return "F";
 }
 
-marketingPage = function v32MarketingPage() {
+const ACTIVE_MARKETING_PAGE_V32 = function v32MarketingPage() {
   v32EnsureState();
   const selected = S.arcade.marketingStrategy;
   shell(`
@@ -13860,8 +13860,8 @@ function v34SecondaryGenreOptions() {
     .join("");
 }
 
-const V34_PROJECT_PAGE_BASE = projectPage;
-projectPage = function v34ProjectPage() {
+const V34_PROJECT_PAGE_BASE = ACTIVE_PROJECT_PAGE_V28;
+const ACTIVE_PROJECT_PAGE_V34 = function v34ProjectPage() {
   v34EnsureState();
   V34_PROJECT_PAGE_BASE();
 
@@ -14973,8 +14973,8 @@ function v38BindDecisionStudio() {
   });
 }
 
-const V35_PRODUCTION_PAGE_BASE = productionPage;
-productionPage = function v35ProductionPage() {
+const V35_PRODUCTION_PAGE_BASE = ACTIVE_PRODUCTION_PAGE_V31;
+const ACTIVE_PRODUCTION_PAGE_V35 = function v35ProductionPage() {
   v35EnsureState();
   V35_PRODUCTION_PAGE_BASE();
   v31EnsureStyleCrewPools();
@@ -15402,7 +15402,7 @@ function v35RenderRunWeek(run, week) {
   });
 }
 
-releasePage = function v35ReleasePage() {
+const ACTIVE_RELEASE_PAGE_V35 = function v35ReleasePage() {
   v35EnsureState();
   const sim = S.simulation || simulate();
   S.simulation = sim;
@@ -15924,7 +15924,7 @@ function v38NormalizedResultScores(simulation) {
   };
 }
 
-resultsPage = function v35ResultsPage() {
+const ACTIVE_RESULTS_PAGE_V35 = function v35ResultsPage() {
   v35EnsureState();
   v38RecordCompletedCareerRunSafely();
   const simulation = S.simulation;
@@ -16245,12 +16245,12 @@ balanceModal = function v38BalanceModal() {
   };
 };
 
-const ACTIVE_PROJECT_PAGE = projectPage;
+const ACTIVE_PROJECT_PAGE = ACTIVE_PROJECT_PAGE_V34;
 const ACTIVE_HIRE_PAGE = ACTIVE_HIRE_PAGE_V35;
-const ACTIVE_PRODUCTION_PAGE = productionPage;
-const ACTIVE_MARKETING_PAGE = marketingPage;
-const ACTIVE_RELEASE_PAGE = releasePage;
-const ACTIVE_RESULTS_PAGE = resultsPage;
+const ACTIVE_PRODUCTION_PAGE = ACTIVE_PRODUCTION_PAGE_V35;
+const ACTIVE_MARKETING_PAGE = ACTIVE_MARKETING_PAGE_V32;
+const ACTIVE_RELEASE_PAGE = ACTIVE_RELEASE_PAGE_V35;
+const ACTIVE_RESULTS_PAGE = ACTIVE_RESULTS_PAGE_V35;
 
 V38_SCREEN_REGISTRY = createScreenRegistry([
   ACTIVE_PROJECT_PAGE,
